@@ -93,11 +93,13 @@ model AgentApiKey {
   keyHash    String    @unique
   lastUsedAt DateTime?
   revokedAt  DateTime?
+  expiresAt  DateTime?
   createdAt  DateTime  @default(now())
 }
 
 model AgentAction {
   id             String              @id @default(uuid())
+  ownerId        String?
   agentId        String
   agent          Agent               @relation(fields: [agentId], references: [id])
   externalId     String?
@@ -122,6 +124,8 @@ model SecurityAssessment {
   action           AgentAction     @relation(fields: [actionId], references: [id], onDelete: Cascade)
   provider         String
   requestId        String?
+  servStatus       String?
+  ownerId          String?
   threatDetected   Boolean         @default(false)
   riskScore        Float           @default(0)
   recommendation   String?
@@ -133,17 +137,20 @@ model SecurityAssessment {
 }
 
 model ThreatFinding {
-  id           String             @id @default(uuid())
-  assessmentId String
-  assessment   SecurityAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  id           String              @id @default(uuid())
+  actionId     String?
+  ownerId      String?
+  hard         Boolean             @default(false)
+  assessmentId String?
+  assessment   SecurityAssessment? @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
   agentId      String
   threatId     String
   category     String
   severity     Severity
   description  String
-  evidence     Json               @default("[]")
+  evidence     Json                @default("[]")
   mitigation   String
-  createdAt    DateTime           @default(now())
+  createdAt    DateTime            @default(now())
 
   @@index([severity, createdAt])
 }
@@ -187,6 +194,10 @@ model Evaluation {
   evidence         Json                 @default("[]")
   rawResponse      Json?
   sanitizedPayload String?
+  ownerId          String?
+  agentId          String?
+  settledAt        DateTime?
+  note             String?
   createdAt        DateTime             @default(now())
   updatedAt        DateTime             @updatedAt
   feedback         EvaluationFeedback[]
@@ -196,6 +207,8 @@ model Evaluation {
 
 model EvaluationFeedback {
   id           String     @id @default(uuid())
+  actionId     String?
+  ownerId      String?
   evaluationId String
   evaluation   Evaluation @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
   message      String
@@ -205,6 +218,7 @@ model EvaluationFeedback {
 
 model Decision {
   id            String           @id @default(uuid())
+  ownerId       String?
   actionId      String           @unique
   action        AgentAction      @relation(fields: [actionId], references: [id], onDelete: Cascade)
   outcome       DecisionOutcome
@@ -217,6 +231,7 @@ model Decision {
 
 model ApprovalRequest {
   id         String    @id @default(uuid())
+  ownerId    String?
   decisionId String    @unique
   decision   Decision  @relation(fields: [decisionId], references: [id], onDelete: Cascade)
   status     String    @default("PENDING")
@@ -228,6 +243,7 @@ model ApprovalRequest {
 
 model AuditLog {
   id        String   @id @default(uuid())
+  ownerId   String?
   userId    String?
   user      User?    @relation(fields: [userId], references: [id])
   agentId   String?
@@ -241,6 +257,7 @@ model AuditLog {
 
 model ImprovementMetric {
   id               String   @id @default(uuid())
+  ownerId          String?
   agentId          String
   originalActionId String
   revisedActionId  String
