@@ -1,8 +1,8 @@
-# Architecture
-Monorepo: `apps/api` (Express), `apps/web` (React), `packages/shared` (normalized SecurityAssessment / ReppoEvaluation / decision types), `prisma/schema.prisma` (PostgreSQL).
+# Architecture (V2)
+Monorepo: apps/api (Express), apps/web (React), packages/shared (normalized types + status enums), prisma/ (PostgreSQL schema + generated migrations), scripts/ (JSON->PG migration).
 ## Flow
-Agent → POST /api/v1/actions/analyze → Zod validation + idempotency → deterministic security engine (`security.ts`: injection, leakage, spending, destination, permission, authorization) → SERV adapter (`providers.ts`, POST inference-api.openserv.ai/v1/chat/completions, json_schema response_format; system prompt required) → Reppo adapter (POST eval.reppo.xyz/api/v1/agents/eval-requests/submit type=trace after redaction; GET poll by evalId) → decision engine (`decision.ts`) → approvals/audit.
+Agent (agent API key) or owner (JWT) -> POST /actions/analyze -> Zod + idempotency -> tenant/agent checks -> deterministic engine (recursive financial scan, exact destinations, cumulative limits, deny-by-default permissions) -> SERV adapter (schema-validated JSON) -> Reppo adapter (redacted trace; 409 -> QUEUED not FAILED) -> decide() -> approval queue (REVIEW only) -> audit. On Reppo settlement (GET poll or 60s background worker in index.ts): validation -> normalization -> reevaluate() re-runs decide() -> decision/action/approval updates -> feedback + audit (evaluation.settled, decision.reevaluated).
 ## Authority rule
-Deterministic policy > AI. Critical/hard findings BLOCK regardless of SERV/Reppo. PENDING → HOLD. FAILED/UNAVAILABLE/missing → REVIEW. SERV↔Reppo disagreement or low confidence → REVIEW. APPROVE needs Reppo accept, score ≥ threshold (default 80, env SCORE_THRESHOLD), and no violations.
-## Trade-offs
-Hard-blocked actions are not sent to Reppo (saves credits; recorded as NOT_SUBMITTED with the reason). Reppo allows one PENDING evaluation per account — a 409 is surfaced, not hidden. Local demo uses a file store when DATABASE_URL is unset; Prisma/PostgreSQL is the production path.
+Deterministic policy > AI. See SECURITY.md for the full approval invariant list. decide() is pure and deterministic; freshness uses settledAt vs REPPO_MAX_EVAL_AGE_MS (default 24h).
+## Persistence
+Prisma/PostgreSQL is the production target (repositories in apps/api/src/repositories.ts, tenant-scoped, atomic approval claim via updateMany-on-PENDING, idempotent upsert). The JSON file store remains the no-database fallback with identical API contracts; it is NOT removed until a deployment has migrated (scripts/migrate-json-to-postgres.mjs).

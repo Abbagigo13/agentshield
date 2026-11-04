@@ -1,4 +1,6 @@
-# Database
-Prisma + PostgreSQL (`prisma/schema.prisma`): User, Agent, AgentApiKey (SHA-256 hash only), AgentAction, SecurityAssessment, ThreatFinding, PolicyRule, PolicyVersion, Evaluation (raw response preserved), EvaluationFeedback, Decision, ApprovalRequest, AuditLog, ImprovementMetric, IntegrationConfiguration. UUID keys, FKs, unique constraints (idempotencyKey, externalEvalId), indexes on owner/time/status.
-Apply: `npx prisma migrate deploy` with DATABASE_URL set. Without DATABASE_URL the API uses `.data/store.json` (gitignored) so the MVP runs anywhere; data shape mirrors the Prisma models.
-Retention: keep audit/evaluation records for the life of the deployment; delete agent keys on revocation (revokedAt), never store plaintext secrets.
+# Database (V2)
+Prisma + PostgreSQL. Schema: prisma/schema.prisma (validated with Prisma 6.19.3). Real generated migration: prisma/migrations/20260101000000_init/migration.sql (311 lines, 15 tables, enums, FKs, unique constraints on email/keyHash/idempotencyKey/externalEvalId, indexes on owner/time/status).
+Apply: `DATABASE_URL=postgresql://... npx prisma migrate deploy` then `npx prisma generate`.
+Repositories: apps/api/src/repositories.ts (tenant-scoped queries, $transaction helper, optimistic approval claim). The running API still defaults to the JSON store when DATABASE_URL is unset, so behaviour is identical in Codespaces demos.
+JSON -> PG path: `DATABASE_URL=... node scripts/migrate-json-to-postgres.mjs .data/store.json` (idempotent createMany/skipDuplicates, FK order). Verify counts, run the API against PG in staging, only then retire .data/store.json. Agent keys migrate as hashes — raw keys are unrecoverable by design; issue fresh keys after cutover if needed.
+Local verification note: migrations were generated and the schema validated in CI-like fashion; executing `migrate deploy` requires a reachable PostgreSQL (none was available in the build sandbox — see remaining-issues report).

@@ -37,5 +37,5 @@ export function remove(table: string, id: string): boolean {
   if (i < 0) return false; arr.splice(i, 1); save(); return true;
 }
 export function audit(event: string, detail: Record<string, unknown> = {}) {
-  insert("audit", { event, detail, userId: detail.userId ?? null, agentId: detail.agentId ?? null, actionId: detail.actionId ?? null });
+  insert("audit", { event, detail, ownerId: detail.ownerId ?? detail.userId ?? null, userId: detail.userId ?? null, agentId: detail.agentId ?? null, actionId: detail.actionId ?? null });
 }

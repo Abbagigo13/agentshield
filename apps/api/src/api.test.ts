@@ -21,7 +21,7 @@ describe("API", () => {
     expect(r.status).toBe(201); expect(r.body.data.decision.outcome).toBe("BLOCK");
   });
   it("compliant action without Reppo key -> REVIEW (missing eval is never approval)", async () => {
-    const r = await request(app).post("/api/v1/actions/analyze").set(auth()).send({ agentId, actionType: "payment.transfer", payload: { amountUsd: 40, destination: "vendor-payroll" }, authorized: true, authorizationEvidence: "sig-1" });
+    const r = await request(app).post("/api/v1/actions/analyze").set(auth()).send({ agentId, actionType: "payment.transfer", payload: { amountUsd: 40, destination: "vendor-payroll" }, authorized: true, authorizationEvidence: "sig:" + "a".repeat(24) });
     expect(r.body.data.decision.outcome).toBe("REVIEW");
     expect(r.body.data.evaluation.status).toBe("NOT_SUBMITTED");
   });

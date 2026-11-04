@@ -23,6 +23,10 @@ export interface SecurityAssessment {
   raw?: unknown;
 }
 
+export const REPPO_STATUSES = ["PENDING", "SETTLED", "FAILED", "DENIED", "NOT_SUBMITTED", "UNAVAILABLE", "QUEUED"] as const;
+export type ReppoStatus = (typeof REPPO_STATUSES)[number];
+export type ServStatus = "ok" | "unavailable" | "error";
+
 /** Normalized Reppo output (spec §8). Mirrors documented verdict shape defensively. */
 export interface ReppoEvaluation {
   evaluationId: string;
@@ -33,6 +37,7 @@ export interface ReppoEvaluation {
   critiques: unknown[];
   evidence: unknown[];
   status: string;
+  settledAt?: string | null;
   raw?: unknown;
 }
 

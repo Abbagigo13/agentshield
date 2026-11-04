@@ -1,19 +1,43 @@
-export const config = {
-  port: Number(process.env.PORT ?? 4000),
-  jwtSecret: process.env.JWT_SECRET ?? "dev-only-change-me-agentshield-secret",
-  scoreThreshold: Number(process.env.SCORE_THRESHOLD ?? 80),
-  serv: {
-    baseUrl: process.env.SERV_BASE_URL ?? "https://inference-api.openserv.ai",
-    apiKey: process.env.SERV_API_KEY ?? "",
-    model: process.env.SERV_MODEL ?? "gpt-5.4-mini",
-    timeoutMs: Number(process.env.SERV_TIMEOUT_MS ?? 20000),
-  },
-  reppo: {
-    baseUrl: process.env.REPPO_BASE_URL ?? "https://eval.reppo.xyz/api/v1",
-    apiKey: process.env.REPPO_API_KEY ?? "",
-    settlementMinutes: Number(process.env.REPPO_SETTLEMENT_MINUTES ?? 10),
-    timeoutMs: Number(process.env.REPPO_TIMEOUT_MS ?? 20000),
-  },
-};
+import { randomBytes } from "node:crypto";
+
+export interface AppConfig {
+  port: number; jwtSecret: string; scoreThreshold: number;
+  maxEvalAgeMs: number;
+  serv: { baseUrl: string; apiKey: string; model: string; timeoutMs: number };
+  reppo: { baseUrl: string; apiKey: string; settlementMinutes: number; timeoutMs: number };
+}
+
+const INSECURE = new Set(["", "dev-only-change-me-agentshield-secret", "change-me-to-a-long-random-string", "secret", "changeme"]);
+
+/** Fails closed: in production a missing/weak JWT_SECRET aborts startup.
+ *  In development an ephemeral per-boot secret is generated (tokens do not
+ *  survive restarts) — never a hard-coded known value. */
+export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
+  const secret = env.JWT_SECRET ?? "";
+  const isProd = env.NODE_ENV === "production";
+  if (isProd && (INSECURE.has(secret) || secret.length < 32)) {
+    throw new Error("JWT_SECRET is required in production and must be at least 32 characters (generate: openssl rand -hex 32). Refusing to start.");
+  }
+  return {
+    port: Number(env.PORT ?? 4000),
+    jwtSecret: secret && !INSECURE.has(secret) ? secret : randomBytes(32).toString("hex"),
+    scoreThreshold: Number(env.SCORE_THRESHOLD ?? 80),
+    maxEvalAgeMs: Number(env.REPPO_MAX_EVAL_AGE_MS ?? 24 * 3600 * 1000),
+    serv: {
+      baseUrl: env.SERV_BASE_URL ?? "https://inference-api.openserv.ai",
+      apiKey: env.SERV_API_KEY ?? "",
+      model: env.SERV_MODEL ?? "gpt-5.4-mini",
+      timeoutMs: Number(env.SERV_TIMEOUT_MS ?? 20000),
+    },
+    reppo: {
+      baseUrl: env.REPPO_BASE_URL ?? "https://eval.reppo.xyz/api/v1",
+      apiKey: env.REPPO_API_KEY ?? "",
+      settlementMinutes: Number(env.REPPO_SETTLEMENT_MINUTES ?? 10),
+      timeoutMs: Number(env.REPPO_TIMEOUT_MS ?? 20000),
+    },
+  };
+}
+
+export const config = loadConfig();
 export const servConfigured = () => config.serv.apiKey.trim().length > 0;
 export const reppoConfigured = () => config.reppo.apiKey.trim().length > 0;

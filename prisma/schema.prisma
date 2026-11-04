@@ -1,209 +1,260 @@
 // AgentShield — PostgreSQL via Prisma (spec §13). Runtime falls back to a
 // file store when DATABASE_URL is unset so the MVP runs without Postgres.
-generator client { provider = "prisma-client-js" }
-datasource db { provider = "postgresql" url = env("DATABASE_URL") }
+generator client {
+  provider = "prisma-client-js"
+}
 
-enum Role { OWNER ADMIN ANALYST VIEWER }
-enum AgentStatus { ACTIVE SUSPENDED REVOKED }
-enum ActionStatus { RECEIVED ANALYZING PENDING_EVALUATION DECIDED EXECUTED BLOCKED }
-enum Severity { LOW MEDIUM HIGH CRITICAL }
-enum DecisionOutcome { APPROVE REVIEW REVISE BLOCK HOLD }
-enum EvalStatus { NOT_SUBMITTED PENDING SETTLED FAILED DENIED }
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  ANALYST
+  VIEWER
+}
+
+enum AgentStatus {
+  ACTIVE
+  SUSPENDED
+  REVOKED
+}
+
+enum ActionStatus {
+  RECEIVED
+  ANALYZING
+  PENDING_EVALUATION
+  DECIDED
+  EXECUTED
+  BLOCKED
+}
+
+enum Severity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum DecisionOutcome {
+  APPROVE
+  REVIEW
+  REVISE
+  BLOCK
+  HOLD
+}
+
+enum EvalStatus {
+  NOT_SUBMITTED
+  PENDING
+  QUEUED
+  SETTLED
+  FAILED
+  DENIED
+}
 
 model User {
-  id String @id @default(uuid())
-  email String @unique
+  id           String     @id @default(uuid())
+  email        String     @unique
   passwordHash String
-  name String?
-  role Role @default(OWNER)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  agents Agent[]
-  auditLogs AuditLog[]
+  name         String?
+  role         Role       @default(OWNER)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  agents       Agent[]
+  auditLogs    AuditLog[]
 }
 
 model Agent {
-  id String @id @default(uuid())
-  ownerId String
-  owner User @relation(fields: [ownerId], references: [id])
-  name String
-  description String?
-  status AgentStatus @default(ACTIVE)
-  permissions Json @default("[]")
-  spendingLimitUsd Float @default(100)
-  allowedDestinations Json @default("[]")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  apiKeys AgentApiKey[]
-  actions AgentAction[]
+  id                  String        @id @default(uuid())
+  ownerId             String
+  owner               User          @relation(fields: [ownerId], references: [id])
+  name                String
+  description         String?
+  status              AgentStatus   @default(ACTIVE)
+  permissions         Json          @default("[]")
+  spendingLimitUsd    Float         @default(100)
+  allowedDestinations Json          @default("[]")
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+  apiKeys             AgentApiKey[]
+  actions             AgentAction[]
+
   @@index([ownerId])
 }
 
 model AgentApiKey {
-  id String @id @default(uuid())
-  agentId String
-  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
-  keyPrefix String
-  keyHash String @unique
+  id         String    @id @default(uuid())
+  agentId    String
+  agent      Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  keyPrefix  String
+  keyHash    String    @unique
   lastUsedAt DateTime?
-  revokedAt DateTime?
-  createdAt DateTime @default(now())
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
 }
 
 model AgentAction {
-  id String @id @default(uuid())
-  agentId String
-  agent Agent @relation(fields: [agentId], references: [id])
-  externalId String?
-  actionType String
-  payload Json
-  reasoning String?
-  status ActionStatus @default(RECEIVED)
+  id             String              @id @default(uuid())
+  agentId        String
+  agent          Agent               @relation(fields: [agentId], references: [id])
+  externalId     String?
+  actionType     String
+  payload        Json
+  reasoning      String?
+  status         ActionStatus        @default(RECEIVED)
   parentActionId String?
-  idempotencyKey String? @unique
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  assessment SecurityAssessment?
-  evaluations Evaluation[]
-  decision Decision?
+  idempotencyKey String?             @unique
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  assessment     SecurityAssessment?
+  evaluations    Evaluation[]
+  decision       Decision?
+
   @@index([agentId, createdAt])
 }
 
 model SecurityAssessment {
-  id String @id @default(uuid())
-  actionId String @unique
-  action AgentAction @relation(fields: [actionId], references: [id], onDelete: Cascade)
-  provider String
-  requestId String?
-  threatDetected Boolean @default(false)
-  riskScore Float @default(0)
-  recommendation String?
-  policyViolations Json @default("[]")
-  rawResponse Json?
-  latencyMs Int?
-  createdAt DateTime @default(now())
-  threats ThreatFinding[]
+  id               String          @id @default(uuid())
+  actionId         String          @unique
+  action           AgentAction     @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  provider         String
+  requestId        String?
+  threatDetected   Boolean         @default(false)
+  riskScore        Float           @default(0)
+  recommendation   String?
+  policyViolations Json            @default("[]")
+  rawResponse      Json?
+  latencyMs        Int?
+  createdAt        DateTime        @default(now())
+  threats          ThreatFinding[]
 }
 
 model ThreatFinding {
-  id String @id @default(uuid())
+  id           String             @id @default(uuid())
   assessmentId String
-  assessment SecurityAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
-  agentId String
-  threatId String
-  category String
-  severity Severity
-  description String
-  evidence Json @default("[]")
-  mitigation String
-  createdAt DateTime @default(now())
+  assessment   SecurityAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  agentId      String
+  threatId     String
+  category     String
+  severity     Severity
+  description  String
+  evidence     Json               @default("[]")
+  mitigation   String
+  createdAt    DateTime           @default(now())
+
   @@index([severity, createdAt])
 }
 
 model PolicyRule {
-  id String @id @default(uuid())
-  ownerId String
-  name String
-  kind String
-  config Json
-  enabled Boolean @default(true)
-  version Int @default(1)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  versions PolicyVersion[]
+  id        String          @id @default(uuid())
+  ownerId   String
+  name      String
+  kind      String
+  config    Json
+  enabled   Boolean         @default(true)
+  version   Int             @default(1)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+  versions  PolicyVersion[]
 }
 
 model PolicyVersion {
-  id String @id @default(uuid())
-  policyId String
-  policy PolicyRule @relation(fields: [policyId], references: [id], onDelete: Cascade)
-  version Int
-  config Json
-  createdAt DateTime @default(now())
+  id        String     @id @default(uuid())
+  policyId  String
+  policy    PolicyRule @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  version   Int
+  config    Json
+  createdAt DateTime   @default(now())
+
   @@unique([policyId, version])
 }
 
 model Evaluation {
-  id String @id @default(uuid())
-  actionId String
-  action AgentAction @relation(fields: [actionId], references: [id], onDelete: Cascade)
-  provider String @default("reppo")
-  externalEvalId String? @unique
-  status EvalStatus @default(NOT_SUBMITTED)
-  score Float?
-  confidence String?
-  decision String?
-  route String?
-  critiques Json @default("[]")
-  evidence Json @default("[]")
-  rawResponse Json?
+  id               String               @id @default(uuid())
+  actionId         String
+  action           AgentAction          @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  provider         String               @default("reppo")
+  externalEvalId   String?              @unique
+  status           EvalStatus           @default(NOT_SUBMITTED)
+  score            Float?
+  confidence       String?
+  decision         String?
+  route            String?
+  critiques        Json                 @default("[]")
+  evidence         Json                 @default("[]")
+  rawResponse      Json?
   sanitizedPayload String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  feedback EvaluationFeedback[]
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  feedback         EvaluationFeedback[]
+
   @@index([status, createdAt])
 }
 
 model EvaluationFeedback {
-  id String @id @default(uuid())
+  id           String     @id @default(uuid())
   evaluationId String
-  evaluation Evaluation @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
-  message String
-  critiques Json @default("[]")
-  createdAt DateTime @default(now())
+  evaluation   Evaluation @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+  message      String
+  critiques    Json       @default("[]")
+  createdAt    DateTime   @default(now())
 }
 
 model Decision {
-  id String @id @default(uuid())
-  actionId String @unique
-  action AgentAction @relation(fields: [actionId], references: [id], onDelete: Cascade)
-  outcome DecisionOutcome
-  reasons Json @default("[]")
-  threshold Float
-  humanRequired Boolean @default(false)
-  createdAt DateTime @default(now())
-  approval ApprovalRequest?
+  id            String           @id @default(uuid())
+  actionId      String           @unique
+  action        AgentAction      @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  outcome       DecisionOutcome
+  reasons       Json             @default("[]")
+  threshold     Float
+  humanRequired Boolean          @default(false)
+  createdAt     DateTime         @default(now())
+  approval      ApprovalRequest?
 }
 
 model ApprovalRequest {
-  id String @id @default(uuid())
-  decisionId String @unique
-  decision Decision @relation(fields: [decisionId], references: [id], onDelete: Cascade)
-  status String @default("PENDING")
-  decidedBy String?
-  note String?
-  createdAt DateTime @default(now())
-  decidedAt DateTime?
+  id         String    @id @default(uuid())
+  decisionId String    @unique
+  decision   Decision  @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+  status     String    @default("PENDING")
+  decidedBy  String?
+  note       String?
+  createdAt  DateTime  @default(now())
+  decidedAt  DateTime?
 }
 
 model AuditLog {
-  id String @id @default(uuid())
-  userId String?
-  user User? @relation(fields: [userId], references: [id])
-  agentId String?
-  actionId String?
-  event String
-  detail Json @default("{}")
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  agentId   String?
+  actionId  String?
+  event     String
+  detail    Json     @default("{}")
   createdAt DateTime @default(now())
+
   @@index([createdAt])
 }
 
 model ImprovementMetric {
-  id String @id @default(uuid())
-  agentId String
+  id               String   @id @default(uuid())
+  agentId          String
   originalActionId String
-  revisedActionId String
-  originalScore Float?
-  revisedScore Float?
-  improvement Float?
-  createdAt DateTime @default(now())
+  revisedActionId  String
+  originalScore    Float?
+  revisedScore     Float?
+  improvement      Float?
+  createdAt        DateTime @default(now())
 }
 
 model IntegrationConfiguration {
-  id String @id @default(uuid())
-  provider String @unique
-  status String @default("not_configured")
+  id            String    @id @default(uuid())
+  provider      String    @unique
+  status        String    @default("not_configured")
   lastCheckedAt DateTime?
-  detail Json @default("{}")
-  updatedAt DateTime @updatedAt
+  detail        Json      @default("{}")
+  updatedAt     DateTime  @updatedAt
 }

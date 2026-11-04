@@ -1,4 +1,5 @@
-import { REPPO_CRITERIA, type ReppoEvaluation, type SecurityAssessment } from "@agentshield/shared";
+import { REPPO_CRITERIA, REPPO_STATUSES, type ReppoEvaluation, type SecurityAssessment } from "@agentshield/shared";
+import { z } from "zod";
 import { config, reppoConfigured, servConfigured } from "./config.js";
 import { sanitizeForReppo } from "./security.js";
 
@@ -13,10 +14,19 @@ async function fetchJson(url: string, init: RequestInit, timeoutMs: number): Pro
   } finally { clearTimeout(t); }
 }
 
+const servAssessmentSchema = z.object({
+  threatDetected: z.boolean(),
+  threats: z.array(z.object({ category: z.string(), severity: z.enum(["low", "medium", "high", "critical"]), explanation: z.string(), evidence: z.array(z.string()) })),
+  policyViolations: z.array(z.string()),
+  riskScore: z.number().min(0).max(100),
+  recommendation: z.enum(["approve", "review", "block", "revise"]),
+});
+const servEnvelopeSchema = z.object({ id: z.string().optional(), choices: z.array(z.object({ message: z.object({ content: z.string() }) })).min(1) });
+
 /** SERV Reasoning — POST {SERV_BASE_URL}/v1/chat/completions (OpenAI format,
  *  Bearer auth, system prompt required, response_format json_schema).
- *  Verified against https://docs.openserv.ai/serv-reasoning/api/ on 2026-11-04.
- *  Without SERV_API_KEY this returns provider:"unavailable" — never faked. */
+ *  Without SERV_API_KEY returns provider:"unavailable" — never faked.
+ *  Malformed/invalid structured output throws (caller maps to servStatus=error). */
 export async function servAssess(input: { actionType: string; payload: unknown; reasoning?: string; policySummary: string }): Promise<SecurityAssessment> {
   const requestId = `serv-${Date.now()}`;
   if (!servConfigured()) {
@@ -47,15 +57,23 @@ export async function servAssess(input: { actionType: string; payload: unknown; 
       response_format: { type: "json_schema", json_schema: { name: "security_assessment", strict: true, schema } },
     }),
   }, config.serv.timeoutMs);
-  if (status < 200 || status >= 300) throw new Error(`SERV HTTP ${status}: ${JSON.stringify(body).slice(0, 300)}`);
-  const b = body as { id?: string; choices?: Array<{ message?: { content?: string } }> };
-  const parsed = JSON.parse(b.choices?.[0]?.message?.content ?? "{}") as Omit<SecurityAssessment, "requestId" | "provider">;
-  return { ...parsed, requestId: b.id ?? requestId, provider: "serv", model: config.serv.model, latencyMs: Date.now() - started, raw: body };
+  if (status < 200 || status >= 300) throw new Error(`SERV HTTP ${status}`);
+  const envelope = servEnvelopeSchema.parse(body);
+  const parsedJson: unknown = JSON.parse(envelope.choices[0].message.content);
+  const parsed = servAssessmentSchema.parse(parsedJson);
+  return { ...parsed, requestId: envelope.id ?? requestId, provider: "serv", model: config.serv.model, latencyMs: Date.now() - started, raw: body };
 }
 
-/** Reppo Evaluation API — verified against https://eval.reppo.xyz/agents.md
- *  and https://docs.reppo.ai/api/eval/evaluations.md on 2026-11-04.
- *  POST /agents/eval-requests/submit, GET /agents/eval-requests/{evalId}. */
+const reppoSubmitSchema = z.object({ evalId: z.string().min(1), id: z.string().optional(), status: z.enum(REPPO_STATUSES) });
+const reppoReadSchema = z.object({
+  evalId: z.string().min(1),
+  status: z.enum(REPPO_STATUSES),
+  settledAt: z.string().nullable().optional(),
+  result: z.unknown().nullable().optional(),
+}).passthrough();
+
+/** Reppo Evaluation API — POST /agents/eval-requests/submit,
+ *  GET /agents/eval-requests/{evalId}. Responses are schema-validated. */
 export async function reppoSubmit(input: { actionType: string; payload: unknown; reasoning?: string; context: string }): Promise<{ evalId: string; status: string; raw: unknown }> {
   if (!reppoConfigured()) throw Object.assign(new Error("REPPO_API_KEY is not configured"), { code: "NOT_CONFIGURED" });
   const payload = sanitizeForReppo({ actionType: input.actionType, payload: input.payload, reasoning: input.reasoning ?? null });
@@ -64,16 +82,15 @@ export async function reppoSubmit(input: { actionType: string; payload: unknown;
     headers: { Authorization: `Bearer ${config.reppo.apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({ type: "trace", payload, criteria: REPPO_CRITERIA, context: input.context.slice(0, 30000), settlementMinutes: config.reppo.settlementMinutes }),
   }, config.reppo.timeoutMs);
-  if (status === 409) throw Object.assign(new Error("Reppo: another evaluation is already PENDING for this account (HTTP 409). Wait for it to settle."), { code: "CONFLICT" });
+  if (status === 409) throw Object.assign(new Error("Reppo: another evaluation is already PENDING for this account (HTTP 409). This action is queued, not failed."), { code: "CONFLICT" });
   if (status === 402) throw Object.assign(new Error("Reppo: insufficient credits (HTTP 402). Top up in the Reppo Billing console."), { code: "PAYMENT_REQUIRED" });
-  if (status < 200 || status >= 300) throw new Error(`Reppo HTTP ${status}: ${JSON.stringify(body).slice(0, 300)}`);
-  const b = body as { evalId?: string; status?: string };
-  if (!b.evalId) throw new Error("Reppo submit response missing evalId");
-  return { evalId: b.evalId, status: b.status ?? "PENDING", raw: body };
+  if (status < 200 || status >= 300) throw new Error(`Reppo HTTP ${status}`);
+  const b = reppoSubmitSchema.parse(body);
+  return { evalId: b.evalId, status: b.status, raw: body };
 }
 
 export function normalizeReppo(raw: unknown, evalId: string): ReppoEvaluation {
-  const r = (raw ?? {}) as Record<string, any>;
+  const r = reppoReadSchema.parse(raw);
   const result = (r.result ?? null) as Record<string, any> | null;
   const verdict = (result?.verdict ?? {}) as Record<string, any>;
   return {
@@ -85,6 +102,7 @@ export function normalizeReppo(raw: unknown, evalId: string): ReppoEvaluation {
     critiques: Array.isArray(result?.verdicts) ? result.verdicts : [],
     evidence: result?.evidence ? [result.evidence] : [],
     status: String(r.status ?? "PENDING"),
+    settledAt: r.settledAt ?? null,
     raw,
   };
 }
@@ -94,6 +112,6 @@ export async function reppoGet(evalId: string): Promise<ReppoEvaluation> {
   const { status, body } = await fetchJson(`${config.reppo.baseUrl}/agents/eval-requests/${encodeURIComponent(evalId)}`, {
     headers: { Authorization: `Bearer ${config.reppo.apiKey}` },
   }, config.reppo.timeoutMs);
-  if (status < 200 || status >= 300) throw new Error(`Reppo HTTP ${status}: ${JSON.stringify(body).slice(0, 300)}`);
+  if (status < 200 || status >= 300) throw new Error(`Reppo HTTP ${status}`);
   return normalizeReppo(body, evalId);
 }
