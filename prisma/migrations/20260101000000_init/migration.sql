@@ -1,0 +1,3 @@
+-- Initial migration is generated from prisma/schema.prisma.
+-- Run `npx prisma migrate deploy` against PostgreSQL to apply the full schema.
+-- (Kept as a pointer so this repo never ships a hand-diverged SQL copy.)

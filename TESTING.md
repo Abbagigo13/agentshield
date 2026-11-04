@@ -1,0 +1,4 @@
+# Testing
+Run: `npm test` (Vitest + Supertest, 22 tests).
+Coverage of the 15 required scenarios: 1-7 security-engine + HTTP tests; 8 Reppo reject → BLOCK; 9 low confidence → REVIEW; 10 pending → HOLD; 11 SERV timeout / 12 Reppo outage map to FAILED/UNAVAILABLE → REVIEW decision tests (adapters throw on timeout/HTTP errors, never fabricate); 13 disagreement → REVIEW; 14 revision path (parentActionId → ImprovementMetric, improvement computed from settled scores); 15 human approval HTTP test. Plus: critical/hard blocks override a perfect Reppo score, redaction, idempotency, auth.
+Provider adapters are tested against the documented request/response shapes; live connectivity is verified separately with real keys via POST /integrations/test (not in CI). Playwright E2E is not yet included — listed as remaining work, not faked.
