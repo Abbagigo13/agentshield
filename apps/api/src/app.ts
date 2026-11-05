@@ -64,6 +64,15 @@ function parse<T>(schema: z.ZodType<T>, req: Request, res: Response): T | null {
 }
 const owns = (req: Authed, row?: Row) => Boolean(row) && String(row!.ownerId ?? "") === ownerOf(req);
 
+// ---------- Live events (SSE) ----------
+type SseClient = { ownerId: string; res: Response };
+const sseClients = new Set<SseClient>();
+export function emitEvent(ownerId: string, type: string, message: string) {
+  const data = `data: ${JSON.stringify({ type, message, at: new Date().toISOString() })}\n\n`;
+  for (const c of sseClients) if (c.ownerId === ownerId) { try { c.res.write(data); } catch { sseClients.delete(c); } }
+}
+
+
 // ---------- Auth ----------
 app.post("/api/v1/auth/register", async (req, res) => {
   const b = parse(z.object({ email: z.string().email(), password: z.string().min(8), name: z.string().optional() }), req, res); if (!b) return;
@@ -128,7 +137,7 @@ app.get("/api/v1/agents/:id/keys", auth, requireUser, async (req: Authed, res) =
 // ---------- Actions ----------
 const actionSchema = z.object({
   agentId: z.string().min(1), actionType: z.string().min(1).max(120),
-  payload: z.record(z.unknown()).default({}), reasoning: z.string().max(20000).optional(),
+  payload: z.record(z.string(), z.unknown()).default({}), reasoning: z.string().max(20000).optional(),
   authorized: z.boolean().optional(), authorizationEvidence: z.string().max(4000).optional(),
   parentActionId: z.string().optional(), idempotencyKey: z.string().max(200).optional(),
 });
@@ -177,7 +186,7 @@ export async function pollAndReevaluate(evaluationId: string) {
     await audit("evaluation.settled", { ownerId: ev.ownerId, agentId: ev.agentId, actionId: ev.actionId });
     await insert("feedback", { evaluationId: ev.id, ownerId: ev.ownerId, actionId: ev.actionId, message: fresh.critiques.length ? "Reppo critiques available for agent revision." : "Reppo evaluation settled.", critiques: fresh.critiques });
     const r = await reevaluate(String(ev.actionId));
-    await audit("decision.reevaluated", { ownerId: ev.ownerId, agentId: ev.agentId, actionId: ev.actionId });
+    await audit("decision.reevaluated", { ownerId: ev.ownerId, agentId: ev.agentId, actionId: ev.actionId }); emitEvent(String(ev.ownerId), "evaluation", `Evaluation settled${typeof fresh.score === "number" ? ` - score ${fresh.score}` : ""}; decision re-evaluated`);
     return { evaluation: updated, decision: r?.decision ?? null };
   }
   return { evaluation: updated, decision: await find("decisions", (d) => d.actionId === ev.actionId) ?? null };
@@ -244,7 +253,7 @@ async function processAction(req: Authed, res: Response) {
   }
 
   const r = await reevaluate(action.id);
-  await audit("decision.made", { ownerId: agent.ownerId, agentId: b.agentId, actionId: action.id });
+  await audit("decision.made", { ownerId: agent.ownerId, agentId: b.agentId, actionId: action.id }); emitEvent(String(agent.ownerId), "decision", `New decision: ${r?.decision?.outcome ?? "recorded"} for ${b.actionType}`);
   if (b.parentActionId) {
     const origEval = (await filter("evaluations", (e) => e.actionId === b.parentActionId)).at(-1);
     if (origEval) await insert("improvements", { agentId: b.agentId, ownerId: agent.ownerId, originalActionId: b.parentActionId, revisedActionId: action.id, originalScore: origEval.score ?? null, revisedScore: evaluation?.score ?? null, improvement: null, note: "Revised score fills in after the revised Reppo evaluation settles." });
@@ -309,21 +318,21 @@ async function humanDecision(req: Authed, res: Response, status: string, outcome
   if (!(await claimApproval(ap.id, status, (req.actor as { id: string }).id))) return fail(res, 409, "Approval request was already decided concurrently.");
   await update("decisions", d!.id, { outcome, humanRequired: false, reasons: [...(d!.reasons as string[]), `Human ${status.toLowerCase()} by ${(req.actor as { email: string }).email}.`] });
   await update("actions", String(d!.actionId), { status: outcome === "APPROVE" ? "DECIDED" : "BLOCKED" });
-  await audit(`decision.human_${status.toLowerCase()}`, { userId: (req.actor as { id: string }).id, ownerId: ownerOf(req), actionId: d!.actionId });
+  await audit(`decision.human_${status.toLowerCase()}`, { userId: (req.actor as { id: string }).id, ownerId: ownerOf(req), actionId: d!.actionId }); emitEvent(ownerOf(req), "decision", `Decision ${outcome} by human review`);
   ok(res, await find("decisions", (x) => x.id === d!.id));
 }
 
 // ---------- Policies ----------
 app.get("/api/v1/policies", auth, requireUser, async (req: Authed, res) => ok(res, await filter("policies", (p) => p.ownerId === ownerOf(req))));
 app.post("/api/v1/policies", auth, requireUser, async (req: Authed, res) => {
-  const b = parse(z.object({ name: z.string().min(1), kind: z.string().min(1), config: z.record(z.unknown()).default({}) }), req, res); if (!b) return;
+  const b = parse(z.object({ name: z.string().min(1), kind: z.string().min(1), config: z.record(z.string(), z.unknown()).default({}) }), req, res); if (!b) return;
   const p = await insert("policies", { ...b, ownerId: ownerOf(req), enabled: true, version: 1 });
   await insert("policyVersions", { policyId: p.id, version: 1, config: b.config });
   ok(res, p, 201);
 });
 app.patch("/api/v1/policies/:id", auth, requireUser, async (req: Authed, res) => {
   const p = await find("policies", (x) => x.id === req.params.id && x.ownerId === ownerOf(req)); if (!p) return fail(res, 404, "Policy not found");
-  const b = parse(z.object({ name: z.string().optional(), config: z.record(z.unknown()).optional(), enabled: z.boolean().optional() }), req, res); if (!b) return;
+  const b = parse(z.object({ name: z.string().optional(), config: z.record(z.string(), z.unknown()).optional(), enabled: z.boolean().optional() }), req, res); if (!b) return;
   const v = Number(p.version ?? 1) + 1;
   await insert("policyVersions", { policyId: p.id, version: v, config: b.config ?? p.config });
   ok(res, await update("policies", p.id, { ...b, version: v }));
@@ -379,6 +388,17 @@ app.post("/api/v1/integrations/test", auth, requireUser, async (req, res) => {
   } catch (e) { return ok(res, { provider: b.provider, ok: false, status: "error", detail: e instanceof Error ? e.message.slice(0, 200) : String(e) }); }
 });
 
+app.get("/api/v1/events", (req, res) => {
+  try {
+    const u = jwt.verify(String(req.query.token ?? ""), config.jwtSecret) as { id: string };
+    res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
+    res.write(`data: ${JSON.stringify({ type: "connected", message: "Live updates connected", at: new Date().toISOString() })}\n\n`);
+    const client: SseClient = { ownerId: u.id, res };
+    sseClients.add(client);
+    const hb = setInterval(() => { try { res.write(": ping\n\n"); } catch { /* closed */ } }, 25000);
+    req.on("close", () => { clearInterval(hb); sseClients.delete(client); });
+  } catch { return res.status(401).json({ error: "Invalid or expired token" }); }
+});
 app.get("/health", async (_req, res) => ok(res, { status: "ok", serv: servConfigured() ? "configured" : "not_configured", reppo: reppoConfigured() ? "configured" : "not_configured", database: prismaEnabled() ? "postgresql" : "json-fallback" }));
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => fail(res, 500, "Internal error"));
 export { redact };

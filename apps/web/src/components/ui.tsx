@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
 import { AlertTriangle, ArrowDownRight, ArrowUpRight, Inbox, Minus, X, type LucideIcon } from "lucide-react";
 import { useEffect, useRef, type ReactNode } from "react";
 import { api } from "../api";
@@ -66,6 +67,22 @@ export function Metric({ label, value, icon: Icon, sub, trend, spark, accent = "
 }
 export function ChartCard({ title, sub, children, action }: { title: string; sub?: string; children: ReactNode; action?: ReactNode }) {
   return <section className="card"><div className="flex flex-wrap justify-between gap-3 mb-4"><div><h3 className="font-semibold text-[15px]">{title}</h3>{sub && <p className="text-xs mt-0.5" style={{ color: "var(--muted)" }}>{sub}</p>}</div>{action}</div>{children}</section>;
+}
+/** Filter state backed by the URL query string, so views are shareable and survive refresh. Changing any filter resets pagination. */
+export function useUrlState(key: string, initial = "") {
+  const [params, setParams] = useSearchParams();
+  const value = params.get(key) ?? initial;
+  const set = (v: string) => setParams((prev) => { const n = new URLSearchParams(prev); if (v && v !== initial) n.set(key, v); else n.delete(key); if (key !== "page") n.delete("page"); return n; }, { replace: true });
+  return [value, set] as const;
+}
+export function paginate<T>(rows: T[], page: number, pageSize = 10) {
+  const pages = Math.max(1, Math.ceil(rows.length / pageSize));
+  const p = Math.min(Math.max(1, page), pages);
+  return { pageRows: rows.slice((p - 1) * pageSize, p * pageSize), pages, page: p };
+}
+export function Pager({ page, pages, total, setPage }: { page: number; pages: number; total: number; setPage: (v: string) => void }) {
+  if (total <= 10) return null;
+  return <nav className="flex items-center gap-3 mt-4 text-sm" aria-label="Pagination"><button className="btn btn-ghost btn-sm" disabled={page <= 1} onClick={() => setPage(String(page - 1))}>Previous</button><span style={{ color: "var(--muted)" }}>Page {page} of {pages} · {total} results</span><button className="btn btn-ghost btn-sm" disabled={page >= pages} onClick={() => setPage(String(page + 1))}>Next</button></nav>;
 }
 export function SearchInput({ value, onChange, placeholder = "Search…" }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
   return <div className="relative w-full sm:w-72"><input className="input" style={{ paddingLeft: 36 }} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} aria-label={placeholder} /><span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm" style={{ color: "var(--muted)" }}>⌕</span></div>;

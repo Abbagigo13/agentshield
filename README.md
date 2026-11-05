@@ -14,6 +14,13 @@ Autonomous agents can move money, call tools, and leak data. Prompt-only guardra
 
 External agents → Gateway (auth + validation) → Security Policy Engine (deterministic) → SERV Reasoning (structured assessment) → Reppo Evaluation (sanitized trace, polled verdict) → Decision Engine → controlled (simulated) execution / human approval → audit trail → dashboard. See [ARCHITECTURE.md](ARCHITECTURE.md).
 
+## Live deployment
+
+- **Web app**: https://agentshield-lac-one.vercel.app
+- **API health**: https://agentshield-production.up.railway.app/health
+
+Hosted on Vercel (frontend) and Railway (API + PostgreSQL). See [DEPLOYMENT.md](DEPLOYMENT.md).
+
 ## Stack
 
 React 19 + Vite + TypeScript + Tailwind + Recharts + TanStack Query (frontend); Node + Express + TypeScript + Zod (API); Prisma + PostgreSQL schema with migrations (file-store fallback for local demo when `DATABASE_URL` is unset); Vitest + Supertest tests.
@@ -40,4 +47,4 @@ An autonomous payment agent proposes 500 USDC against a 100 USDC limit with an e
 
 [PRD.md](PRD.md) · [ARCHITECTURE.md](ARCHITECTURE.md) · [DATABASE.md](DATABASE.md) · [API.md](API.md) · [SECURITY.md](SECURITY.md) · [TESTING.md](TESTING.md) · [DEPLOYMENT.md](DEPLOYMENT.md) · [HACKATHON.md](HACKATHON.md)
 
-Screenshots/demo links: _placeholder - add after deployment._
+Live demo: https://agentshield-lac-one.vercel.app — sign up, register an agent, then run the demos in Live Monitoring.
