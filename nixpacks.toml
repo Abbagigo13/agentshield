@@ -1,0 +1,5 @@
+# Railway/Nixpacks: install devDependencies too.
+# The build needs TypeScript and @types/* packages, which a
+# production-only install would skip and the build would fail.
+[phases.install]
+cmds = ["npm ci --include=dev"]
