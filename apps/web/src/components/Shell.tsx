@@ -22,6 +22,7 @@ export function Shell({ children }: { children: ReactNode }) {
   useEffect(() => { api<Row>("/api/v1/auth/me").then(setMe).catch(() => {}); const load = () => { fetch("/health").then((r) => r.json()).then((b) => setHealth(b.data ?? b)).catch(() => setHealth(null)); api<Row>("/api/v1/analytics/overview").then((o) => { setActivity(o.recentActivity ?? []); setCounts(o); }).catch(() => {}); }; load(); const id = setInterval(load, 30000); return () => clearInterval(id); }, []);
   useEffect(() => { setMobile(false); setNotifOpen(false); setProfileOpen(false); }, [loc.pathname]);
   useEffect(() => { const h = (e: KeyboardEvent) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); document.querySelector<HTMLInputElement>('[aria-label="Global search"]')?.focus(); } }; window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h); }, []);
+  useEffect(() => { const h = (e: KeyboardEvent) => { if (e.key === "Escape") { setNotifOpen(false); setProfileOpen(false); setMobile(false); } }; window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h); }, []);
   const results = useMemo(() => query.trim() ? FLAT.filter(([, l]) => l.toLowerCase().includes(query.toLowerCase())) : [], [query]);
   const [hits, setHits] = useState<{ agents: Row[]; policies: Row[]; decisions: Row[] }>({ agents: [], policies: [], decisions: [] });
   const [searching, setSearching] = useState(false);

@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, ArrowDownRight, ArrowUpRight, Inbox, Minus, X, type LucideIcon } from "lucide-react";
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { api } from "../api";
 import { PageSkeleton } from "./skeletons";
 
@@ -12,6 +12,26 @@ export const CHART = { blue: "#15C17B", cyan: "#22D3EE", emerald: "#34D399", amb
 export const badge = (v: string) => { const c = SEV[v] ?? OUT[v] ?? "#6EE7B7"; return <span className="badge" style={{ background: `${c}14`, color: c }}><span style={{ width: 6, height: 6, borderRadius: 99, background: c }} />{String(v || "-").replaceAll("_", " ")}</span>; };
 export function StatusBadge({ value }: { value: string }) { return badge(value); }
 export function useApi<T>(key: string, path: string, opts?: { refetchInterval?: number | false }) { return useQuery({ queryKey: [key, path], queryFn: () => api<T>(path), refetchInterval: opts?.refetchInterval }); }
+
+/** Dialog accessibility: Escape closes, Tab stays inside, focus returns to the opener on close. */
+export function useDialogA11y(onClose: () => void) {
+  const ref = useRef<HTMLDivElement>(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  useEffect(() => {
+    const prev = document.activeElement as HTMLElement | null;
+    const root = ref.current;
+    const focusables = () => root ? [...root.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')].filter((el) => !el.hasAttribute("disabled")) : [];
+    (focusables()[0] ?? root)?.focus();
+    const h = (e: KeyboardEvent) => {
+      if (e.key === "Escape") { e.preventDefault(); closeRef.current(); }
+      if (e.key === "Tab" && root) { const f = focusables(); if (!f.length) return; const first = f[0], last = f[f.length - 1]; if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); } else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); } }
+    };
+    document.addEventListener("keydown", h);
+    return () => { document.removeEventListener("keydown", h); prev?.focus?.(); };
+  }, []);
+  return ref;
+}
 
 export function EmptyState({ title, body, icon: Icon = Inbox }: { title: string; body?: string; icon?: LucideIcon }) {
   return <div className="flex flex-col items-center text-center py-10 px-4"><div style={{ background: "rgba(21,193,123,.09)", border: "1px solid rgba(21,193,123,.18)", borderRadius: 12, padding: 12 }}><Icon size={22} color="#34D399" /></div><p className="font-semibold mt-4">{title}</p>{body && <p className="text-sm mt-1 max-w-md" style={{ color: "var(--text2)" }}>{body}</p>}</div>;
@@ -54,10 +74,12 @@ export function FilterSelect({ value, onChange, options, label }: { value: strin
   return <select className="input" style={{ width: "auto", minWidth: 150 }} value={value} onChange={(e) => onChange(e.target.value)} aria-label={label}><option value="ALL">{label}: All</option>{options.map((o) => <option key={o} value={o}>{o.replaceAll("_", " ")}</option>)}</select>;
 }
 export function DetailDrawer({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
-  return <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label={title}><div className="absolute inset-0" style={{ background: "rgba(3,6,12,.66)" }} onClick={onClose} /><aside className="drawer-enter absolute right-0 top-0 h-full w-full max-w-md overflow-y-auto p-6" style={{ background: "var(--elev)", borderLeft: "1px solid var(--border)" }}><div className="flex items-center justify-between mb-5"><h2 className="font-bold text-lg">{title}</h2><button className="btn btn-ghost btn-sm" onClick={onClose} aria-label="Close details"><X size={16} /></button></div>{children}</aside></div>;
+  const ref = useDialogA11y(onClose);
+  return <div ref={ref} className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label={title}><div className="absolute inset-0" style={{ background: "rgba(3,6,12,.66)" }} onClick={onClose} /><aside className="drawer-enter absolute right-0 top-0 h-full w-full max-w-md overflow-y-auto p-6" style={{ background: "var(--elev)", borderLeft: "1px solid var(--border)" }}><div className="flex items-center justify-between mb-5"><h2 className="font-bold text-lg">{title}</h2><button className="btn btn-ghost btn-sm" onClick={onClose} aria-label="Close details"><X size={16} /></button></div>{children}</aside></div>;
 }
 export function ConfirmDialog({ title, body, confirmLabel = "Confirm", tone = "danger", icon: Icon, onCancel, onConfirm }: { title: string; body: string; confirmLabel?: string; tone?: "danger" | "amber" | "emerald"; icon?: LucideIcon; onCancel: () => void; onConfirm: () => void }) {
-  return <div className="fixed inset-0 z-50 grid place-items-center p-4" role="alertdialog" aria-modal="true"><div className="absolute inset-0" style={{ background: "rgba(3,6,12,.66)" }} onClick={onCancel} /><div className="pop-enter card relative w-full max-w-sm" style={{ borderRadius: 18, padding: 26 }}>{Icon && <span className="inline-grid place-items-center mb-4" style={{ background: tone === "amber" ? "rgba(245,181,68,.14)" : tone === "emerald" ? "rgba(21,193,123,.13)" : "rgba(248,113,113,.12)", borderRadius: 11, padding: 10 }}><Icon size={19} color={tone === "amber" ? "#F5B544" : tone === "emerald" ? "#34D399" : "#F87171"} /></span>}<h2 className="font-bold text-lg">{title}</h2><p className="text-sm mt-2" style={{ color: "var(--text2)" }}>{body}</p><div className="flex gap-2 mt-5 justify-end"><button className="btn btn-ghost" onClick={onCancel}>Cancel</button><button className={tone === "amber" ? "btn btn-amber" : tone === "emerald" ? "btn" : "btn btn-danger"} onClick={onConfirm}>{confirmLabel}</button></div></div></div>;
+  const ref = useDialogA11y(onCancel);
+  return <div ref={ref} className="fixed inset-0 z-50 grid place-items-center p-4" role="alertdialog" aria-modal="true" aria-label={title}><div className="absolute inset-0" style={{ background: "rgba(3,6,12,.66)" }} onClick={onCancel} /><div className="pop-enter card relative w-full max-w-sm" style={{ borderRadius: 18, padding: 26 }}>{Icon && <span className="inline-grid place-items-center mb-4" style={{ background: tone === "amber" ? "rgba(245,181,68,.14)" : tone === "emerald" ? "rgba(21,193,123,.13)" : "rgba(248,113,113,.12)", borderRadius: 11, padding: 10 }}><Icon size={19} color={tone === "amber" ? "#F5B544" : tone === "emerald" ? "#34D399" : "#F87171"} /></span>}<h2 className="font-bold text-lg">{title}</h2><p className="text-sm mt-2" style={{ color: "var(--text2)" }}>{body}</p><div className="flex gap-2 mt-5 justify-end"><button className="btn btn-ghost" onClick={onCancel}>Cancel</button><button className={tone === "amber" ? "btn btn-amber" : tone === "emerald" ? "btn" : "btn btn-danger"} onClick={onConfirm}>{confirmLabel}</button></div></div></div>;
 }
 export function Toast({ msg, tone = "info" }: { msg: string; tone?: "info" | "error" | "success" }) {
   if (!msg) return null; const c = tone === "error" ? "#F87171" : tone === "success" ? "#34D399" : "#34D399";
