@@ -1,36 +1,43 @@
+import { Suspense, lazy, type ReactNode } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { Guard } from "./components/Shell";
-import Agents from "./pages/Agents";
-import Audit from "./pages/Audit";
-import Decisions from "./pages/Decisions";
-import Evaluations from "./pages/Evaluations";
-import Improvement from "./pages/Improvement";
-import Integrations from "./pages/Integrations";
+import { PageSkeleton } from "./components/skeletons";
 import Landing from "./pages/Landing";
 import Login from "./pages/Login";
-import Monitoring from "./pages/Monitoring";
-import Overview from "./pages/Overview";
-import Policies from "./pages/Policies";
 import Register from "./pages/Register";
-import SettingsPage from "./pages/SettingsPage";
-import Threats from "./pages/Threats";
+
+const Overview = lazy(() => import("./pages/Overview"));
+const Agents = lazy(() => import("./pages/Agents"));
+const Monitoring = lazy(() => import("./pages/Monitoring"));
+const Threats = lazy(() => import("./pages/Threats"));
+const Evaluations = lazy(() => import("./pages/Evaluations"));
+const Decisions = lazy(() => import("./pages/Decisions"));
+const Policies = lazy(() => import("./pages/Policies"));
+const Improvement = lazy(() => import("./pages/Improvement"));
+const Audit = lazy(() => import("./pages/Audit"));
+const Integrations = lazy(() => import("./pages/Integrations"));
+const SettingsPage = lazy(() => import("./pages/SettingsPage"));
+
+function LazyPage({ children }: { children: ReactNode }) {
+  return <Suspense fallback={<PageSkeleton />}>{children}</Suspense>;
+}
 
 export default function App() {
   return <Routes>
     <Route path="/" element={<Landing />} />
     <Route path="/login" element={<Login />} />
     <Route path="/register" element={<Register />} />
-    <Route path="/app" element={<Guard><Overview /></Guard>} />
-    <Route path="/app/agents" element={<Guard><Agents /></Guard>} />
-    <Route path="/app/monitoring" element={<Guard><Monitoring /></Guard>} />
-    <Route path="/app/threats" element={<Guard><Threats /></Guard>} />
-    <Route path="/app/evaluations" element={<Guard><Evaluations /></Guard>} />
-    <Route path="/app/decisions" element={<Guard><Decisions /></Guard>} />
-    <Route path="/app/policies" element={<Guard><Policies /></Guard>} />
-    <Route path="/app/improvement" element={<Guard><Improvement /></Guard>} />
-    <Route path="/app/audit" element={<Guard><Audit /></Guard>} />
-    <Route path="/app/integrations" element={<Guard><Integrations /></Guard>} />
-    <Route path="/app/settings" element={<Guard><SettingsPage /></Guard>} />
+    <Route path="/app" element={<Guard><LazyPage><Overview /></LazyPage></Guard>} />
+    <Route path="/app/agents" element={<Guard><LazyPage><Agents /></LazyPage></Guard>} />
+    <Route path="/app/monitoring" element={<Guard><LazyPage><Monitoring /></LazyPage></Guard>} />
+    <Route path="/app/threats" element={<Guard><LazyPage><Threats /></LazyPage></Guard>} />
+    <Route path="/app/evaluations" element={<Guard><LazyPage><Evaluations /></LazyPage></Guard>} />
+    <Route path="/app/decisions" element={<Guard><LazyPage><Decisions /></LazyPage></Guard>} />
+    <Route path="/app/policies" element={<Guard><LazyPage><Policies /></LazyPage></Guard>} />
+    <Route path="/app/improvement" element={<Guard><LazyPage><Improvement /></LazyPage></Guard>} />
+    <Route path="/app/audit" element={<Guard><LazyPage><Audit /></LazyPage></Guard>} />
+    <Route path="/app/integrations" element={<Guard><LazyPage><Integrations /></LazyPage></Guard>} />
+    <Route path="/app/settings" element={<Guard><LazyPage><SettingsPage /></LazyPage></Guard>} />
     <Route path="*" element={<Navigate to="/" replace />} />
   </Routes>;
 }
