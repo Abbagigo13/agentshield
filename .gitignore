@@ -9,3 +9,6 @@ coverage/
 playwright-report/
 test-results/
 .pgsock/
+
+# Database dumps (contain full data - never commit)
+backups/
