@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { config } from "./config.js";
 import { normalizeReppo, reppoGet, reppoSubmit, servAssess } from "./providers.js";
 
-// HTTP-MOCKED provider tests. These stub global fetch — they are NOT live
+// HTTP-MOCKED provider tests. These stub global fetch - they are NOT live
 // API tests and prove nothing about real SERV/Reppo availability.
 const resp = (status: number, body: unknown) => ({ status, text: async () => (typeof body === "string" ? body : JSON.stringify(body)) });
 function mockFetch(impl: (url: string, init?: unknown) => Promise<unknown>) { vi.stubGlobal("fetch", vi.fn(impl as never)); }

@@ -1,4 +1,4 @@
-// AgentShield — PostgreSQL via Prisma (spec §13). Runtime falls back to a
+// AgentShield - PostgreSQL via Prisma (spec §13). Runtime falls back to a
 // file store when DATABASE_URL is unset so the MVP runs without Postgres.
 generator client {
   provider = "prisma-client-js"

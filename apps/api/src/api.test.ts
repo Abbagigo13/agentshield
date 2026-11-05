@@ -25,6 +25,10 @@ describe("API", () => {
     expect(r.body.data.decision.outcome).toBe("REVIEW");
     expect(r.body.data.evaluation.status).toBe("NOT_SUBMITTED");
   });
+  it("cumulative spend does not double-count the current action (40 + 40 <= 100 stays REVIEW)", async () => {
+    const r = await request(app).post("/api/v1/actions/analyze").set(auth()).send({ agentId, actionType: "payment.transfer", payload: { amountUsd: 40, destination: "vendor-payroll" }, authorized: true, authorizationEvidence: "sig:" + "a".repeat(24) });
+    expect(r.body.data.decision.outcome).toBe("REVIEW");
+  });
   it("15 human approval flips REVIEW to APPROVE", async () => {
     const list = await request(app).get("/api/v1/decisions").set(auth());
     const rev = list.body.data.find((d: any) => d.outcome === "REVIEW");

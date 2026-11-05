@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 // File-backed store used when DATABASE_URL is unset. With DATABASE_URL set,
-// deploy Prisma (prisma/schema.prisma) — the REST layer is store-agnostic
+// deploy Prisma (prisma/schema.prisma) - the REST layer is store-agnostic
 // only for this MVP store; swapping in Prisma is the documented next step.
 export interface Row { id: string; createdAt: string; [k: string]: unknown }
 

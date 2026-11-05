@@ -1,4 +1,4 @@
-# PRD — AgentShield
+# PRD - AgentShield
 ## Problem
 AI agents act autonomously (payments, tools, data). Operators need pre-execution control, independent evaluation, and an audit trail.
 ## Users

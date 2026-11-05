@@ -9,7 +9,7 @@ import { config, reppoConfigured, servConfigured } from "./config.js";
 import { decide } from "./decision.js";
 import { reppoGet, reppoSubmit, servAssess } from "./providers.js";
 import { analyzeAction, deepFinancials, redact } from "./security.js";
-import { all, audit, claimApproval, filter, find, insert, remove, update, type Row } from "./db.js";
+import { all, audit, claimApproval, filter, find, insert, prismaEnabled, remove, update, type Row } from "./db.js";
 import type { SecurityAssessment } from "@agentshield/shared";
 
 export const app = express();
@@ -94,7 +94,7 @@ app.post("/api/v1/agents", auth, requireUser, async (req: Authed, res) => {
   const agent = await insert("agents", { ...b, ownerId: ownerOf(req), status: "ACTIVE" });
   const rawKey = await issueKey(agent.id);
   await audit("agent.created", { userId: ownerOf(req), ownerId: ownerOf(req), agentId: agent.id });
-  ok(res, { ...agent, apiKey: rawKey, apiKeyNote: "Store this now — only its SHA-256 hash is kept." }, 201);
+  ok(res, { ...agent, apiKey: rawKey, apiKeyNote: "Store this now - only its SHA-256 hash is kept." }, 201);
 });
 app.get("/api/v1/agents", auth, requireUser, async (req: Authed, res) => ok(res, await filter("agents", (a) => a.ownerId === ownerOf(req))));
 app.get("/api/v1/agents/:id", auth, requireUser, async (req: Authed, res) => {
@@ -108,7 +108,7 @@ app.post("/api/v1/agents/:id/keys/rotate", auth, requireUser, async (req: Authed
   for (const k of await filter("agentKeys", (k) => k.agentId === a.id && !k.revokedAt)) await update("agentKeys", k.id, { revokedAt: new Date().toISOString() });
   const rawKey = await issueKey(a.id);
   await audit("agent.key_rotated", { userId: ownerOf(req), ownerId: ownerOf(req), agentId: a.id });
-  ok(res, { apiKey: rawKey, apiKeyNote: "Previous keys revoked. Store this now — only its hash is kept." }, 201);
+  ok(res, { apiKey: rawKey, apiKeyNote: "Previous keys revoked. Store this now - only its hash is kept." }, 201);
 });
 app.post("/api/v1/agents/:id/keys/:keyId/revoke", auth, requireUser, async (req: Authed, res) => {
   const a = await find("agents", (x) => x.id === req.params.id && x.ownerId === ownerOf(req));
@@ -201,11 +201,14 @@ async function processAction(req: Authed, res: Response) {
     const dup = await find("actions", (a) => a.idempotencyKey === b.idempotencyKey && a.ownerId === agent.ownerId);
     if (dup) return ok(res, { action: dup, duplicate: true });
   }
+  // Prior spend must be measured before this action is stored, otherwise
+  // the current action is counted twice by the cumulative-limit check.
+  const spentBefore = await priorSpentUsd(b.agentId);
   // Raw secrets never persist: the stored payload/reasoning are redacted.
   const action = await insert("actions", { agentId: b.agentId, ownerId: agent.ownerId, actionType: b.actionType, payload: redact(b.payload ?? {}), reasoning: b.reasoning ? String(redact(b.reasoning)) : null, parentActionId: b.parentActionId ?? null, idempotencyKey: b.idempotencyKey ?? null, status: "ANALYZING" });
   await audit("action.received", { ownerId: agent.ownerId, agentId: b.agentId, actionId: action.id });
 
-  const policy = { spendingLimitUsd: Number(agent.spendingLimitUsd ?? 100), allowedDestinations: (agent.allowedDestinations as string[]) ?? [], permissions: (agent.permissions as string[]) ?? [], priorSpentUsd: await priorSpentUsd(b.agentId) };
+  const policy = { spendingLimitUsd: Number(agent.spendingLimitUsd ?? 100), allowedDestinations: (agent.allowedDestinations as string[]) ?? [], permissions: (agent.permissions as string[]) ?? [], priorSpentUsd: spentBefore };
   const { findings, hardViolations } = analyzeAction({ actionType: b.actionType, payload: b.payload ?? {}, reasoning: b.reasoning, authorized: b.authorized, authorizationEvidence: b.authorizationEvidence }, policy);
   for (const f of findings) await insert("threats", { ...f, ownerId: agent.ownerId, agentId: b.agentId, actionId: action.id, evidence: f.evidence });
   const critical = findings.some((f) => f.severity === "CRITICAL");
@@ -225,10 +228,10 @@ async function processAction(req: Authed, res: Response) {
   if (blocked) {
     evaluation = await insert("evaluations", { actionId: action.id, ownerId: agent.ownerId, agentId: b.agentId, externalEvalId: null, status: "NOT_SUBMITTED", score: null, confidence: null, decision: null, route: null, critiques: [], evidence: [], settledAt: null, note: "Not submitted: deterministic policy already blocks this action; Reppo credits are not spent on hard-blocked actions." });
   } else if (!reppoConfigured()) {
-    evaluation = await insert("evaluations", { actionId: action.id, ownerId: agent.ownerId, agentId: b.agentId, externalEvalId: null, status: "NOT_SUBMITTED", score: null, confidence: null, decision: null, route: null, critiques: [], evidence: [], settledAt: null, note: "REPPO_API_KEY not configured — no evaluation submitted. This is not an approval." });
+    evaluation = await insert("evaluations", { actionId: action.id, ownerId: agent.ownerId, agentId: b.agentId, externalEvalId: null, status: "NOT_SUBMITTED", score: null, confidence: null, decision: null, route: null, critiques: [], evidence: [], settledAt: null, note: "REPPO_API_KEY not configured - no evaluation submitted. This is not an approval." });
   } else {
     try {
-      const sub = await reppoSubmit({ actionType: b.actionType, payload: b.payload, reasoning: b.reasoning, context: `AgentShield security evaluation. Agent: ${String(agent.name)}. Action type: ${b.actionType}. Policy: spending limit ${policy.spendingLimitUsd} USD; allowed destinations: ${policy.allowedDestinations.join(", ") || "(any)"}. Synthetic/demo data only — no real credentials or customer data.` });
+      const sub = await reppoSubmit({ actionType: b.actionType, payload: b.payload, reasoning: b.reasoning, context: `AgentShield security evaluation. Agent: ${String(agent.name)}. Action type: ${b.actionType}. Policy: spending limit ${policy.spendingLimitUsd} USD; allowed destinations: ${policy.allowedDestinations.join(", ") || "(any)"}. Synthetic/demo data only - no real credentials or customer data.` });
       evaluation = await insert("evaluations", { actionId: action.id, ownerId: agent.ownerId, agentId: b.agentId, externalEvalId: sub.evalId, status: sub.status, score: null, confidence: null, decision: null, route: null, critiques: [], evidence: [], settledAt: null, rawResponse: redact(sub.raw) });
       await audit("evaluation.submitted", { ownerId: agent.ownerId, agentId: b.agentId, actionId: action.id });
     } catch (e) {
@@ -376,6 +379,6 @@ app.post("/api/v1/integrations/test", auth, requireUser, async (req, res) => {
   } catch (e) { return ok(res, { provider: b.provider, ok: false, status: "error", detail: e instanceof Error ? e.message.slice(0, 200) : String(e) }); }
 });
 
-app.get("/health", async (_req, res) => ok(res, { status: "ok", serv: servConfigured() ? "configured" : "not_configured", reppo: reppoConfigured() ? "configured" : "not_configured" }));
+app.get("/health", async (_req, res) => ok(res, { status: "ok", serv: servConfigured() ? "configured" : "not_configured", reppo: reppoConfigured() ? "configured" : "not_configured", database: prismaEnabled() ? "postgresql" : "json-fallback" }));
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => fail(res, 500, "Internal error"));
 export { redact };

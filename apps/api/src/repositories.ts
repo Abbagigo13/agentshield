@@ -2,7 +2,7 @@ import { PrismaClient } from "@prisma/client";
 
 /** PostgreSQL persistence via Prisma. Used when DATABASE_URL is set.
  *  The JSON store (store.ts) remains the fallback for local demos without a
- *  database — see DATABASE.md for the migration path. API contracts are
+ *  database - see DATABASE.md for the migration path. API contracts are
  *  unchanged; these repositories mirror the Prisma models in
  *  prisma/schema.prisma, all queries are tenant-scoped by ownerId. */
 let client: PrismaClient | null = null;
@@ -11,7 +11,39 @@ export function prisma(): PrismaClient {
   client ??= new PrismaClient();
   return client;
 }
-export const prismaEnabled = () => Boolean(process.env.DATABASE_URL);
+
+let postgresReady = false;
+let initPromise: Promise<boolean> | null = null;
+/** True only after PostgreSQL has been probed and answered. DATABASE_URL
+ *  merely being present (e.g. a placeholder in .env) is not enough. */
+export const prismaEnabled = () => postgresReady;
+
+/** One-time connectivity probe, cached for the process lifetime. If
+ *  DATABASE_URL is set but the server cannot be reached, the API falls back
+ *  to the JSON file store instead of crashing on the first query, and logs
+ *  a loud warning. Point DATABASE_URL at a running database (or unset it)
+ *  to use PostgreSQL. */
+export function initializeDatabase(): Promise<boolean> {
+  if (!process.env.DATABASE_URL) { postgresReady = false; return Promise.resolve(false); }
+  initPromise ??= (async () => {
+    try {
+      const c = prisma();
+      await Promise.race([
+        (async () => { await c.$connect(); await c.$queryRaw`SELECT 1`; })(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("connection timed out after 5000ms")), 5000)),
+      ]);
+      postgresReady = true;
+      console.log("[agentshield] PostgreSQL connected; using database persistence.");
+    } catch (e) {
+      postgresReady = false;
+      console.error(`[agentshield] WARNING: DATABASE_URL is set but PostgreSQL is unreachable (${e instanceof Error ? e.message.split("\n")[0] : String(e)}). Falling back to the JSON file store so the API stays available. Fix DATABASE_URL or start PostgreSQL to use database persistence.`);
+      try { await client?.$disconnect(); } catch { /* already disconnected */ }
+      client = null;
+    }
+    return postgresReady;
+  })();
+  return initPromise;
+}
 
 export const repositories = {
   users: {

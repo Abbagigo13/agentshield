@@ -18,7 +18,7 @@ export interface PolicyContext {
 
 /** Authorization evidence must be a structured signed-approval reference:
  *  `sig:<at least 24 url-safe chars>`. Arbitrary strings are rejected.
- *  This verifies format/provenance shape only — cryptographic verification
+ *  This verifies format/provenance shape only - cryptographic verification
  *  against an issuer key is future work and is not claimed here. */
 export function validAuthorizationEvidence(v?: string): boolean {
   return typeof v === "string" && /^sig:[A-Za-z0-9_-]{24,}$/.test(v);
@@ -36,7 +36,7 @@ export function deepFinancials(value: unknown, amounts: number[] = [], destinati
   return { amounts, destinations };
 }
 
-/** Deterministic heuristic engine. Heuristics are NOT perfect protection —
+/** Deterministic heuristic engine. Heuristics are NOT perfect protection -
  *  see SECURITY.md for stated limits. Hard findings can BLOCK. */
 export function analyzeAction(input: {
   actionType: string; payload: Record<string, unknown>; reasoning?: string;
@@ -65,7 +65,7 @@ export function analyzeAction(input: {
   if (policy.allowedDestinations.length > 0) {
     const allowed = new Set(policy.allowedDestinations.map((d) => d.trim().toLowerCase()));
     for (const dest of destinations) {
-      // Exact match only — substring/lookalike destinations must not pass.
+      // Exact match only - substring/lookalike destinations must not pass.
       if (!allowed.has(dest.trim().toLowerCase())) push({ threatId: "unauthorized-destination", category: "Financial policy violation", severity: "HIGH", description: `Destination "${dest}" is not exactly in the allowed destinations list.`, evidence: ["[destination withheld]"], mitigation: "Use an allow-listed destination or request a policy change." }, true);
     }
   }

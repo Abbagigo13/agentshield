@@ -5,7 +5,7 @@
 // FK order: users -> agents -> keys/actions -> assessments -> threats ->
 // policies -> versions -> evaluations -> feedback -> decisions -> approvals
 // -> audit -> improvements. Agent keys migrate as hashes only (raw keys are
-// unrecoverable by design — issue fresh keys after cutover if needed).
+// unrecoverable by design - issue fresh keys after cutover if needed).
 // The JSON file is never modified or deleted by this script.
 import fs from "node:fs";
 import { PrismaClient } from "@prisma/client";
@@ -64,9 +64,9 @@ try {
     const total = await prisma[MODEL[table]].count();
     console.log(`${table}: migrated ${res.count}/${rows.length} new (table total ${total})`);
   }
-  console.log("MIGRATION_OK — verify counts above, then run the API against PostgreSQL in staging before retiring the JSON store.");
+  console.log("MIGRATION_OK - verify counts above, then run the API against PostgreSQL in staging before retiring the JSON store.");
 } catch (e) {
   console.error("MIGRATION_FAILED:", e.message);
-  console.error("Recovery: fix the cause and re-run — completed tables keep their rows, duplicates are skipped.");
+  console.error("Recovery: fix the cause and re-run - completed tables keep their rows, duplicates are skipped.");
   process.exitCode = 1;
 } finally { await prisma.$disconnect(); }

@@ -1,13 +1,14 @@
 import request from "supertest";
 import { beforeAll, describe, expect, it } from "vitest";
 import { app } from "./app.js";
-import { prisma } from "./repositories.js";
+import { initializeDatabase, prisma } from "./repositories.js";
 
-// Real-PostgreSQL integration tests. Skipped unless DATABASE_URL is set:
+// Real-PostgreSQL integration tests. Skipped unless DATABASE_URL points at a
+// PostgreSQL server that actually answers the connectivity probe:
 //   DATABASE_URL=postgresql://... npx vitest run src/db.integration.test.ts
 // (In this repo's staging setup that runs against a dedicated test database
-//  created only for this purpose — never a production database.)
-const enabled = Boolean(process.env.DATABASE_URL);
+//  created only for this purpose - never a production database.)
+const enabled = await initializeDatabase();
 const SIG = "sig:" + "b".repeat(24);
 let token = "", agentId = "";
 const auth = () => ({ Authorization: `Bearer ${token}` });

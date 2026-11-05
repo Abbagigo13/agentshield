@@ -1,4 +1,4 @@
-import { prisma, prismaEnabled } from "./repositories.js";
+import { initializeDatabase, prisma, prismaEnabled } from "./repositories.js";
 import * as json from "./store.js";
 
 /** Async data layer. When DATABASE_URL is set, rows live in PostgreSQL via
@@ -54,26 +54,31 @@ function fromDb(row: Record<string, unknown>): Row {
 const delegate = (table: string): any => (prisma() as any)[DELEGATE[table]];
 
 export async function insert(table: string, row: Omit<Row, "id" | "createdAt"> & Partial<Row>): Promise<Row> {
+  await initializeDatabase();
   if (!prismaEnabled()) return json.insert(table, row);
   const full: Row = { id: (row.id as string) ?? json.uid(), createdAt: (row.createdAt as string) ?? json.now(), ...row };
   const created = await delegate(table).create({ data: toDb(table, full) });
   return fromDb(created);
 }
 export async function all(table: string): Promise<Row[]> {
+  await initializeDatabase();
   if (!prismaEnabled()) return json.all(table);
   return (await delegate(table).findMany({ orderBy: { createdAt: "asc" } })).map(fromDb);
 }
 export async function find(table: string, pred: (r: Row) => boolean): Promise<Row | undefined> { return (await all(table)).find(pred); }
 export async function filter(table: string, pred: (r: Row) => boolean): Promise<Row[]> { return (await all(table)).filter(pred); }
 export async function update(table: string, id: string, patch: Record<string, unknown>): Promise<Row | undefined> {
+  await initializeDatabase();
   if (!prismaEnabled()) return json.update(table, id, patch);
   try { return fromDb(await delegate(table).update({ where: { id }, data: toDb(table, patch) })); } catch { return undefined; }
 }
 export async function remove(table: string, id: string): Promise<boolean> {
+  await initializeDatabase();
   if (!prismaEnabled()) return json.remove(table, id);
   try { await delegate(table).delete({ where: { id } }); return true; } catch { return false; }
 }
 export async function audit(event: string, detail: Record<string, unknown> = {}): Promise<void> {
+  await initializeDatabase();
   if (!prismaEnabled()) { json.audit(event, detail); return; }
   await insert("audit", { event, detail: detail as object, ownerId: detail.ownerId ?? detail.userId ?? null, userId: detail.userId ?? null, agentId: detail.agentId ?? null, actionId: detail.actionId ?? null });
 }
@@ -81,6 +86,7 @@ export async function audit(event: string, detail: Record<string, unknown> = {})
  *  PostgreSQL: single UPDATE ... WHERE status='PENDING'. JSON: the
  *  check-and-set runs synchronously inside this call, so it cannot interleave. */
 export async function claimApproval(approvalId: string, status: string, decidedBy: string): Promise<boolean> {
+  await initializeDatabase();
   if (!prismaEnabled()) {
     const ap = json.find("approvals", (a) => a.id === approvalId);
     if (!ap || ap.status !== "PENDING") return false;

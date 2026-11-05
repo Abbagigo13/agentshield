@@ -12,12 +12,12 @@
 - Every list/detail/analytics/audit query is owner-scoped. Cross-tenant IDs return 404 and empty lists (regression-tested).
 
 ## Data protection
-- Action payloads and reasoning are redacted BEFORE persistence; traces therefore cannot disclose stored secrets. Reppo submissions additionally pass the same redaction (Reppo evaluations are visible to its network — synthetic data only).
+- Action payloads and reasoning are redacted BEFORE persistence; traces therefore cannot disclose stored secrets. Reppo submissions additionally pass the same redaction (Reppo evaluations are visible to its network - synthetic data only).
 - Destination allow-lists use exact matching (lookalikes rejected). Financial inspection is recursive (nested amounts/destinations). Spending limits are cumulative across an agent's non-blocked actions. Agents with no permissions are denied by default.
 - Authorization evidence must be a structured signed-approval reference (`sig:<24+ chars>`). This verifies format only; cryptographic issuer verification is not implemented and is not claimed.
 
 ## Honest limits
-Heuristic prompt-injection/secret detection catches known patterns only; novel obfuscation and semantic attacks can evade it. SERV/Reppo add judgment but can err — hence human REVIEW routing, freshness checks, and deterministic policy supremacy.
+Heuristic prompt-injection/secret detection catches known patterns only; novel obfuscation and semantic attacks can evade it. SERV/Reppo add judgment but can err - hence human REVIEW routing, freshness checks, and deterministic policy supremacy.
 
 ## Configuration
 Server-only env: JWT_SECRET, SERV_API_KEY, REPPO_API_KEY, DATABASE_URL, SCORE_THRESHOLD, REPPO_MAX_EVAL_AGE_MS, CORS_ORIGIN. Never commit `.env`. Provider keys never reach the browser; the frontend only receives VITE_API_URL.

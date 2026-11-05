@@ -4,7 +4,7 @@
 
 AgentShield is a security and evaluation infrastructure layer for autonomous AI agents. It intercepts proposed agent actions, enforces deterministic security policies, analyzes them with OpenServ SERV Reasoning, submits sanitized traces to the Reppo Evaluation API, and only then decides: **APPROVE, REVISE, REVIEW, BLOCK, or HOLD**.
 
-Built for the OpenServ SERV Hackathon Edition 02 — Reppo Track.
+Built for the OpenServ SERV Hackathon Edition 02 - Reppo Track.
 
 ## Problem and solution
 
@@ -30,7 +30,7 @@ npm run dev -w @agentshield/web         # dashboard on :5173 (proxies /api to :4
 
 Open http://localhost:5173, sign up, register an agent, then run the demo in Live Monitoring.
 
-Without provider keys the app still runs: SERV/Reppo show `not_configured`, evaluations are not submitted, and affected actions route to REVIEW — never silently approved. Add keys (SERV: console.openserv.ai; Reppo: eval.reppo.xyz → API Key) and use Integrations → Test connection.
+Without provider keys the app still runs: SERV/Reppo show `not_configured`, evaluations are not submitted, and affected actions route to REVIEW - never silently approved. Add keys (SERV: console.openserv.ai; Reppo: eval.reppo.xyz → API Key) and use Integrations → Test connection.
 
 ## Demo scenario
 
@@ -40,4 +40,4 @@ An autonomous payment agent proposes 500 USDC against a 100 USDC limit with an e
 
 [PRD.md](PRD.md) · [ARCHITECTURE.md](ARCHITECTURE.md) · [DATABASE.md](DATABASE.md) · [API.md](API.md) · [SECURITY.md](SECURITY.md) · [TESTING.md](TESTING.md) · [DEPLOYMENT.md](DEPLOYMENT.md) · [HACKATHON.md](HACKATHON.md)
 
-Screenshots/demo links: _placeholder — add after deployment._
+Screenshots/demo links: _placeholder - add after deployment._

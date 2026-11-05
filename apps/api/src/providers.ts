@@ -23,9 +23,9 @@ const servAssessmentSchema = z.object({
 });
 const servEnvelopeSchema = z.object({ id: z.string().optional(), choices: z.array(z.object({ message: z.object({ content: z.string() }) })).min(1) });
 
-/** SERV Reasoning — POST {SERV_BASE_URL}/v1/chat/completions (OpenAI format,
+/** SERV Reasoning - POST {SERV_BASE_URL}/v1/chat/completions (OpenAI format,
  *  Bearer auth, system prompt required, response_format json_schema).
- *  Without SERV_API_KEY returns provider:"unavailable" — never faked.
+ *  Without SERV_API_KEY returns provider:"unavailable" - never faked.
  *  Malformed/invalid structured output throws (caller maps to servStatus=error). */
 export async function servAssess(input: { actionType: string; payload: unknown; reasoning?: string; policySummary: string }): Promise<SecurityAssessment> {
   const requestId = `serv-${Date.now()}`;
@@ -72,7 +72,7 @@ const reppoReadSchema = z.object({
   result: z.unknown().nullable().optional(),
 }).passthrough();
 
-/** Reppo Evaluation API — POST /agents/eval-requests/submit,
+/** Reppo Evaluation API - POST /agents/eval-requests/submit,
  *  GET /agents/eval-requests/{evalId}. Responses are schema-validated. */
 export async function reppoSubmit(input: { actionType: string; payload: unknown; reasoning?: string; context: string }): Promise<{ evalId: string; status: string; raw: unknown }> {
   if (!reppoConfigured()) throw Object.assign(new Error("REPPO_API_KEY is not configured"), { code: "NOT_CONFIGURED" });

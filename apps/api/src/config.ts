@@ -11,7 +11,7 @@ const INSECURE = new Set(["", "dev-only-change-me-agentshield-secret", "change-m
 
 /** Fails closed: in production a missing/weak JWT_SECRET aborts startup.
  *  In development an ephemeral per-boot secret is generated (tokens do not
- *  survive restarts) — never a hard-coded known value. */
+ *  survive restarts) - never a hard-coded known value. */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const secret = env.JWT_SECRET ?? "";
   const isProd = env.NODE_ENV === "production";
@@ -27,7 +27,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       baseUrl: env.SERV_BASE_URL ?? "https://inference-api.openserv.ai",
       apiKey: env.SERV_API_KEY ?? "",
       model: env.SERV_MODEL ?? "gpt-5.4-mini",
-      timeoutMs: Number(env.SERV_TIMEOUT_MS ?? 20000),
+      timeoutMs: Number(env.SERV_TIMEOUT_MS ?? 60000),
     },
     reppo: {
       baseUrl: env.REPPO_BASE_URL ?? "https://eval.reppo.xyz/api/v1",

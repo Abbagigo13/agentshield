@@ -1,0 +1,61 @@
+import { Activity, Bell, Bot, BrainCircuit, ChevronLeft, FileClock, FlaskConical, Gauge, Landmark, LogOut, Menu, Plug, Scale, Search, Settings, Shield, ShieldAlert, X, type LucideIcon } from "lucide-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
+import { api, setToken, token } from "../api";
+import { fmtTime, type Row } from "./ui";
+
+const GROUPS: Array<{ label: string; items: Array<[string, string, LucideIcon]> }> = [
+  { label: "Overview", items: [["/app", "Overview", Gauge], ["/app/monitoring", "Live Monitoring", Activity]] },
+  { label: "Security", items: [["/app/decisions", "Decision Center", Scale], ["/app/threats", "Threat Intelligence", ShieldAlert], ["/app/audit", "Audit Trail", FileClock]] },
+  { label: "Operations", items: [["/app/agents", "Agent Management", Bot], ["/app/policies", "Policy Management", Landmark]] },
+  { label: "Intelligence", items: [["/app/evaluations", "Evaluation Center", BrainCircuit], ["/app/improvement", "Improvement Lab", FlaskConical]] },
+  { label: "Workspace", items: [["/app/integrations", "Integrations", Plug], ["/app/settings", "Settings", Settings]] },
+];
+const FLAT = GROUPS.flatMap((g) => g.items);
+const TITLES: Record<string, string> = Object.fromEntries(FLAT.map(([p, l]) => [p, l]));
+
+export function Shell({ children }: { children: ReactNode }) {
+  const loc = useLocation(); const nav = useNavigate();
+  const [collapsed, setCollapsed] = useState(false); const [mobile, setMobile] = useState(false);
+  const [query, setQuery] = useState(""); const [notifOpen, setNotifOpen] = useState(false); const [profileOpen, setProfileOpen] = useState(false);
+  const [me, setMe] = useState<Row | null>(null); const [health, setHealth] = useState<Row | null>(null); const [activity, setActivity] = useState<Row[]>([]); const [counts, setCounts] = useState<Row>({});
+  useEffect(() => { api<Row>("/api/v1/auth/me").then(setMe).catch(() => {}); const load = () => { fetch("/health").then((r) => r.json()).then((b) => setHealth(b.data ?? b)).catch(() => setHealth(null)); api<Row>("/api/v1/analytics/overview").then((o) => { setActivity(o.recentActivity ?? []); setCounts(o); }).catch(() => {}); }; load(); const id = setInterval(load, 30000); return () => clearInterval(id); }, []);
+  useEffect(() => { setMobile(false); setNotifOpen(false); setProfileOpen(false); }, [loc.pathname]);
+  useEffect(() => { const h = (e: KeyboardEvent) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); document.querySelector<HTMLInputElement>('[aria-label="Global search"]')?.focus(); } }; window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h); }, []);
+  const results = useMemo(() => query.trim() ? FLAT.filter(([, l]) => l.toLowerCase().includes(query.toLowerCase())) : [], [query]);
+  const title = TITLES[loc.pathname] ?? "Overview";
+  const initials = String(me?.name || me?.email || "RG").slice(0, 2).toUpperCase();
+  const navList = (mini: boolean) => GROUPS.map((g) => <div key={g.label} className="mb-5"><p className="px-3 mb-1.5 text-[10px] font-bold tracking-[.12em] uppercase" style={{ color: "var(--muted)", display: mini ? "none" : undefined }}>{g.label}</p>{g.items.map(([p, l, I]) => { const active = loc.pathname === p; return <Link key={p} to={p} title={l} aria-current={active ? "page" : undefined} className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-[13.5px] font-medium transition-colors" style={{ background: active ? "linear-gradient(90deg,rgba(21,193,123,.18),rgba(21,193,123,.05))" : "transparent", color: active ? "#6EE7B7" : "#9FB0CC", border: active ? "1px solid rgba(21,193,123,.22)" : "1px solid transparent", justifyContent: mini ? "center" : undefined }}><I size={17} strokeWidth={active ? 2.2 : 1.8} />{!mini && l}{!mini && ((p === "/app/evaluations" && counts.pendingEvaluations > 0) || (p === "/app/threats" && counts.threatsDetected > 0) || (p === "/app/agents" && counts.agents > 0)) && <span className="ml-auto text-[11px] font-bold mono" style={{ color: p === "/app/threats" && counts.threatsDetected > 0 ? "#F87171" : "#34D399" }}>{p === "/app/evaluations" ? counts.pendingEvaluations : p === "/app/threats" ? counts.threatsDetected : counts.agents}</span>}</Link>; })}</div>);
+  const sidebarBody = (mini: boolean) => <>
+    <div className="flex items-center gap-2.5 px-4 h-16 shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
+      <span style={{ background: "linear-gradient(135deg,#0B8A5F,#15C17B)", borderRadius: 9, padding: 7, display: "grid", placeItems: "center" }}><Shield size={18} color="#fff" /></span>
+      {!mini && <span className="leading-tight"><span className="font-bold block text-[15px]">RecallGuard</span><span className="text-[10.5px]" style={{ color: "var(--muted)" }}>AI Security Platform</span></span>}
+      <button className="btn btn-ghost btn-sm ml-auto hidden lg:inline-flex" style={{ padding: 5 }} onClick={() => setCollapsed(!collapsed)} aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}><ChevronLeft size={15} style={{ transform: collapsed ? "rotate(180deg)" : undefined, transition: "transform .25s" }} /></button>
+    </div>
+    {!mini && <div className="px-3 pt-4"><button className="w-full text-left px-3 py-2.5 rounded-lg" style={{ background: "rgba(148,163,184,.05)", border: "1px solid var(--border)" }}><span className="text-[10px] uppercase tracking-wider font-bold" style={{ color: "var(--muted)" }}>Workspace</span><span className="block text-[13px] font-semibold mt-0.5 truncate">{me?.email ?? "Default workspace"}</span></button></div>}
+    <nav className="flex-1 overflow-y-auto px-3 py-4" aria-label="Primary">{navList(mini)}</nav>
+    <div className="p-3 shrink-0" style={{ borderTop: "1px solid var(--border)" }}>
+      {!mini && me && <div className="flex items-center gap-2.5 px-2 py-1.5"><span className="grid place-items-center font-bold text-xs shrink-0" style={{ width: 34, height: 34, borderRadius: 9, background: "rgba(21,193,123,.16)", color: "#6EE7B7", border: "1px solid rgba(21,193,123,.25)" }}>{initials}</span><span className="min-w-0"><span className="block text-[13px] font-semibold truncate">{me.name || me.email}</span><span className="block text-[11px] truncate" style={{ color: "var(--muted)" }}>{me.role ?? "Owner"}</span></span></div>}
+      <button className="flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-[13px] mt-1" style={{ color: "#9FB0CC", justifyContent: mini ? "center" : undefined }} onClick={() => { setToken(null); nav("/login"); }}><LogOut size={16} />{!mini && "Sign out"}</button>
+    </div></>;
+  return <div className="flex min-h-screen">
+    <aside className="hidden lg:flex flex-col shrink-0 sticky top-0 h-screen transition-all" style={{ width: collapsed ? 76 : 264, background: "rgba(13,18,28,.92)", borderRight: "1px solid var(--border)" }}>{sidebarBody(collapsed)}</aside>
+    {mobile && <div className="fixed inset-0 z-50 lg:hidden"><div className="absolute inset-0" style={{ background: "rgba(3,6,12,.7)" }} onClick={() => setMobile(false)} /><aside className="drawer-enter absolute left-0 top-0 h-full flex flex-col" style={{ width: 272, background: "var(--bg2)", borderRight: "1px solid var(--border)" }}>{sidebarBody(false)}</aside></div>}
+    <div className="flex-1 min-w-0 flex flex-col">
+      <header className="sticky top-0 z-40 flex items-center gap-3 px-4 md:px-7 h-16" style={{ background: "rgba(8,11,18,.86)", backdropFilter: "blur(10px)", borderBottom: "1px solid var(--border)" }}>
+        <button className="btn btn-ghost btn-sm lg:hidden" style={{ padding: 6 }} onClick={() => setMobile(true)} aria-label="Open navigation"><Menu size={18} /></button>
+        <div className="min-w-0"><nav className="text-[11px] hidden sm:flex gap-1.5" style={{ color: "var(--muted)" }} aria-label="Breadcrumb"><Link to="/app">Home</Link><span>/</span><span style={{ color: "var(--text2)" }}>{title}</span></nav><h2 className="font-bold text-[15px] truncate">{title}</h2></div>
+        <div className="relative ml-auto w-full max-w-xs hidden md:block"><Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2" color="#64748B" /><input className="input" style={{ paddingLeft: 34, paddingRight: 52, height: 38, borderRadius: 99 }} placeholder="Search pages, agents, policies" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Global search" /><kbd className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] mono px-1.5 py-0.5 rounded" style={{ background: "rgba(148,163,184,.1)", border: "1px solid var(--border)", color: "var(--muted)" }}>Ctrl K</kbd>
+          {query && <div className="pop-enter absolute right-0 left-0 top-11 card" style={{ padding: 6, zIndex: 50 }}>{results.length ? results.map(([p, l, I]) => <Link key={p} to={p} className="flex gap-2.5 items-center px-3 py-2 rounded-lg text-sm hover:bg-white/5" onClick={() => setQuery("")}><I size={15} color="#34D399" />{l}</Link>) : <p className="text-sm px-3 py-2" style={{ color: "var(--muted)" }}>No pages match.</p>}</div>}</div>
+        <span className="hidden xl:inline-flex items-center gap-2 text-xs font-medium shrink-0" style={{ color: health ? "#34D399" : "#FBBF24" }}><span className="live-dot" style={{ width: 7, height: 7, borderRadius: 99, background: "currentColor" }} />{health ? `API online · ${health.database ?? ""}` : "API unreachable"}</span>
+        <div className="relative shrink-0"><button className="btn btn-ghost btn-sm relative" style={{ padding: 8 }} onClick={() => { setNotifOpen(!notifOpen); setProfileOpen(false); }} aria-label="Notifications"><Bell size={17} />{activity.length > 0 && <span style={{ position: "absolute", top: 5, right: 5, width: 7, height: 7, borderRadius: 99, background: "#15C17B" }} />}</button>
+          {notifOpen && <div className="pop-enter absolute right-0 top-11 card w-80 max-w-[86vw]" style={{ padding: 8, zIndex: 50 }}><p className="font-semibold text-sm px-2 py-1.5">Recent activity</p>{activity.length ? activity.slice(0, 6).map((a) => <div key={a.id} className="px-2 py-2 text-[13px]" style={{ borderTop: "1px solid rgba(148,163,184,.07)" }}><span className="font-medium">{a.event}</span><span className="block text-xs mt-0.5" style={{ color: "var(--muted)" }}>{fmtTime(a.createdAt)} · {new Date(String(a.createdAt)).toLocaleDateString()}</span></div>) : <p className="text-sm px-2 py-3" style={{ color: "var(--muted)" }}>No recent activity.</p>}<Link to="/app/audit" className="block text-center text-[13px] font-semibold py-2" style={{ color: "#34D399" }}>View audit trail</Link></div>}</div>
+        <div className="relative shrink-0"><button className="grid place-items-center font-bold text-xs" style={{ width: 36, height: 36, borderRadius: 9, background: "rgba(21,193,123,.16)", color: "#6EE7B7", border: "1px solid rgba(21,193,123,.25)" }} onClick={() => { setProfileOpen(!profileOpen); setNotifOpen(false); }} aria-label="Profile menu">{initials}</button>
+          {profileOpen && <div className="pop-enter absolute right-0 top-11 card w-60" style={{ padding: 8, zIndex: 50 }}><p className="px-2 py-1.5 text-sm font-semibold truncate">{me?.email ?? "Account"}</p><p className="px-2 text-xs pb-2" style={{ color: "var(--muted)" }}>{me?.role ?? ""}</p><Link to="/app/settings" className="block px-2 py-2 text-sm rounded-lg hover:bg-white/5">Settings</Link><button className="block w-full text-left px-2 py-2 text-sm rounded-lg hover:bg-white/5" onClick={() => { setToken(null); nav("/login"); }}>Sign out</button></div>}</div>
+      </header>
+      <main className="flex-1 w-full max-w-[1440px] mx-auto p-4 md:p-7"><div key={loc.pathname} className="page-enter">{children}</div></main>
+      <footer className="px-7 pb-6 text-[11px] flex flex-wrap gap-2 justify-between" style={{ color: "var(--muted)" }}><span>RecallGuard - trust every action, verify every decision.</span><span>{health ? `Database: ${health.database} · SERV: ${health.serv} · Reppo: ${health.reppo}` : "Backend status unavailable"}</span></footer>
+    </div>
+  </div>;
+}
+export function Guard({ children }: { children: ReactNode }) { return token() ? <Shell>{children}</Shell> : <Navigate to="/login" replace />; }

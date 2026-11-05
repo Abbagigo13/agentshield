@@ -16,7 +16,7 @@ export interface DecideInput {
  *  Invariants: hard policy > AI; only a validated SETTLED Reppo verdict with
  *  decision=accept, route=auto-ship, confidence high|medium, a fresh settledAt,
  *  score >= threshold, working SERV, and no SERV/Reppo disagreement can APPROVE.
- *  Every unknown state resolves to REVIEW/BLOCK/HOLD — never APPROVE. */
+ *  Every unknown state resolves to REVIEW/BLOCK/HOLD - never APPROVE. */
 export function decide(input: DecideInput): DecisionResult {
   const threshold = input.threshold ?? DEFAULT_SCORE_THRESHOLD;
   const reasons: string[] = [];

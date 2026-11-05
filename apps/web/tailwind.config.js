@@ -1,2 +1,2 @@
 /** @type {import('tailwindcss').Config} */
-export default { content: ["./index.html", "./src/**/*.{ts,tsx}"], theme: { extend: { colors: { navy: "#060b1a", surface: "#0b1428", accent: "#22d3ee" } } }, plugins: [] };
+export default { content: ["./index.html", "./src/**/*.{ts,tsx}"], theme: { extend: { colors: { navy: "#050911", surface: "#070C16", elev: "#0A111F", card: "#0B1322", accent: "#15C17B", cyanx: "#22D3EE" }, fontFamily: { sans: ['"IBM Plex Sans"', '"Segoe UI"', "system-ui", "sans-serif"], mono: ["ui-monospace", "Menlo", "Consolas", "monospace"] } } }, plugins: [] };

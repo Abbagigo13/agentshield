@@ -34,7 +34,7 @@ describe("evaluation lifecycle (mocked Reppo)", () => {
     expect(polled.body.data.evaluation.status).toBe("SETTLED");
     expect(polled.body.data.evaluation.score).toBe(95);
     // SERV is unconfigured in tests, so the re-evaluated decision must be
-    // REVIEW (SERV unavailable can never approve) — proving re-decision ran.
+    // REVIEW (SERV unavailable can never approve) - proving re-decision ran.
     expect(polled.body.data.decision.outcome).toBe("REVIEW");
 
     const audit = await request(app).get("/api/v1/audit-logs").set(auth());
