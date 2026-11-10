@@ -8,3 +8,5 @@ Policies: GET/POST /policies, PATCH/DELETE /policies/:id (PATCH creates a Policy
 Analytics: GET /analytics/overview|threats|improvements. Audit: GET /audit-logs.
 Integrations: GET /integrations/status, POST /integrations/test {provider}. Health: GET /health.
 Errors: `{error}` with 400/401/404/409/502; success: `{data}`.
+
+- `POST /api/v1/events/ticket` (user auth) -> `{ ticket }` valid 60s; connect with `GET /api/v1/events?token=<ticket>`. Session JWTs are rejected on the stream.

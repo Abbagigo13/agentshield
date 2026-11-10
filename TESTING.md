@@ -1,5 +1,5 @@
 # Testing (V2)
-Run: `npm test` - 70 tests, all passing at last run. Suites:
+Run: `npm test` - 98 tests passing (+5 Postgres-only integration tests that run when `DATABASE_URL` is set), including `fixes.test.ts` (detector bypasses, spend window, Reppo queue/terminal states, agent scoping, abuse limits). Suites:
 - decision.test.ts (16): security-engine basics + decision rules.
 - security-regression.test.ts (29): Phase 5 list - BLOCK/HOLD approval bypass, concurrent approvals, cross-tenant access/submission, invalid + revoked + rotated agent keys, agent-key self-only, JWT secret missing/weak (production refuses), nested amount, lookalike destination, malformed authorization evidence, empty permissions, cumulative limits, unknown confidence, route=review, SERV critical/outage/unavailable, stale evaluation, unknown status, QUEUED hold, secret-free traces.
 - providers.test.ts (18): HTTP-MOCKED SERV/Reppo adapters (success, 401, 402, 409, 429, timeout, malformed JSON, invalid structured output, pending/settled/rejected, polling errors). Mocks are labelled; they are not live verification.

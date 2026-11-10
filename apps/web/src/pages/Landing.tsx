@@ -2,7 +2,7 @@ import { ArrowRight, BrainCircuit, FileClock, Scale, Shield, ShieldCheck } from 
 import { Link } from "react-router-dom";
 
 const STEPS = [
-  ["Submit", "An agent sends a proposed action to the RecallGuard gateway with its API key."],
+  ["Submit", "An agent sends a proposed action to the AgentShield gateway with its API key."],
   ["Enforce", "Deterministic rules check spending limits, destinations, permissions, injection and leakage. Hard violations block immediately."],
   ["Reason", "SERV Reasoning returns a structured security assessment (JSON-schema enforced)."],
   ["Evaluate", "A sanitized trace goes to Reppo; the settled verdict (score, confidence, critiques) drives routing."],
@@ -13,13 +13,13 @@ export default function Landing() {
   return <div style={{ background: "var(--bg)" }}>
     <div className="max-w-6xl mx-auto px-6">
       <header className="flex justify-between items-center h-[72px]" style={{ borderBottom: "1px solid var(--border)" }}>
-        <span className="flex items-center gap-2.5 font-bold text-lg"><span style={{ background: "linear-gradient(135deg,#0B8A5F,#15C17B)", borderRadius: 9, padding: 7, display: "grid", placeItems: "center" }}><Shield size={18} color="#fff" /></span>RecallGuard</span>
+        <span className="flex items-center gap-2.5 font-bold text-lg"><span style={{ background: "linear-gradient(135deg,#0B8A5F,#15C17B)", borderRadius: 9, padding: 7, display: "grid", placeItems: "center" }}><Shield size={18} color="#fff" /></span>AgentShield</span>
         <nav className="flex items-center gap-3"><Link to="/login" className="text-sm font-medium px-3 py-2" style={{ color: "var(--text2)" }}>Sign in</Link><Link to="/register" className="btn btn-sm" style={{ padding: "8px 14px" }}>Start free</Link></nav>
       </header>
       <section className="py-20 md:py-24 max-w-3xl">
         <span className="badge" style={{ background: "rgba(21,193,123,.1)", color: "#6EE7B7" }}><ShieldCheck size={12} /> AI agent security gateway</span>
         <h1 className="text-[42px] md:text-[56px] font-bold mt-6 leading-[1.06] tracking-tight">Trust every action.<br /><span style={{ color: "#34D399" }}>Verify every decision.</span></h1>
-        <p className="mt-6 text-[17px] leading-relaxed max-w-2xl" style={{ color: "var(--text2)" }}>RecallGuard sits between autonomous AI agents and the systems they act on. Every proposed action is checked by a deterministic policy engine, analyzed with OpenServ SERV Reasoning, and independently evaluated by Reppo before it can run - with a full audit trail.</p>
+        <p className="mt-6 text-[17px] leading-relaxed max-w-2xl" style={{ color: "var(--text2)" }}>AgentShield sits between autonomous AI agents and the systems they act on. Every proposed action is checked by a deterministic policy engine, analyzed with OpenServ SERV Reasoning, and independently evaluated by Reppo before it can run - with a full audit trail.</p>
         <div className="flex flex-wrap gap-3 mt-9"><Link to="/register" className="btn" style={{ height: 44, padding: "0 22px" }}>Start free <ArrowRight size={16} /></Link><Link to="/login" className="btn btn-ghost" style={{ height: 44, padding: "0 22px" }}>Open dashboard</Link></div>
         <p className="text-xs mt-4" style={{ color: "var(--muted)" }}>No credit card required · Provider keys stay server-side</p>
       </section>
@@ -30,7 +30,7 @@ export default function Landing() {
         <article className="card card-hover"><Scale color="#34D399" size={22} /><h3 className="font-bold mt-3">Human in the loop</h3><p className="text-sm mt-1.5 leading-relaxed" style={{ color: "var(--text2)" }}>Uncertain actions route to REVIEW. A person approves or rejects exactly once - blocked actions can never be approved through that path.</p></article>
         <article className="card card-hover"><FileClock color="#34D399" size={22} /><h3 className="font-bold mt-3">Honest by design</h3><p className="text-sm mt-1.5 leading-relaxed" style={{ color: "var(--text2)" }}>If a provider key is missing, the dashboard says so. Pending evaluations hold actions instead of approving them. Every event lands in the audit trail.</p></article>
       </section>
-      <footer className="py-8 flex flex-wrap gap-3 justify-between text-xs" style={{ borderTop: "1px solid var(--border)", color: "var(--muted)" }}><span>RecallGuard - SERV Hackathon Edition 02, Reppo Track.</span><span>Synthetic data only in demos; traces are redacted before submission.</span></footer>
+      <footer className="py-8 flex flex-wrap gap-3 justify-between text-xs" style={{ borderTop: "1px solid var(--border)", color: "var(--muted)" }}><span>AgentShield - SERV Hackathon Edition 02, Reppo Track.</span><span>Synthetic data only in demos; traces are redacted before submission.</span></footer>
     </div>
   </div>;
 }

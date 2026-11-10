@@ -21,9 +21,19 @@ describe("live events (SSE)", () => {
     const r = await request(app).get("/api/v1/events");
     expect(r.status).toBe(401);
   });
+  it("rejects the long-lived session JWT on the stream (tickets only)", async () => {
+    const r = await request(app).get(`/api/v1/events?token=${encodeURIComponent(token)}`);
+    expect(r.status).toBe(401);
+  });
+  it("a scoped SSE ticket is not accepted as a session token", async () => {
+    const t = await request(app).post("/api/v1/events/ticket").set("Authorization", `Bearer ${token}`);
+    expect(t.status).toBe(200);
+    expect((await request(app).get("/api/v1/auth/me").set("Authorization", `Bearer ${t.body.data.ticket}`)).status).toBe(401);
+  });
   it("streams a connected event to an authenticated user", async () => {
+    const ticket = (await request(app).post("/api/v1/events/ticket").set("Authorization", `Bearer ${token}`)).body.data.ticket as string;
     const text = await new Promise<string>((resolve, reject) => {
-      const req = get(`${base}/api/v1/events?token=${encodeURIComponent(token)}`, (res) => {
+      const req = get(`${base}/api/v1/events?token=${encodeURIComponent(ticket)}`, (res) => {
         expect(res.headers["content-type"]).toContain("text/event-stream");
         res.once("data", (chunk) => { req.destroy(); resolve(String(chunk)); });
       });

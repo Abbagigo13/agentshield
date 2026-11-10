@@ -24,16 +24,52 @@ export function validAuthorizationEvidence(v?: string): boolean {
   return typeof v === "string" && /^sig:[A-Za-z0-9_-]{24,}$/.test(v);
 }
 
-const AMOUNT_KEY = /^(amount|amountusd|value|total|price|cost|sum)$/i;
-const DEST_KEY = /^(destination|to|recipient|payee|address|account|wallet)$/i;
+/** Key-name classification. Keys are normalised (lower-case, non-alphanumerics
+ *  stripped) so `usd_amount`, `amountUSD` and `Amount-Usd` are treated alike.
+ *  STRONG amount keys are unambiguous money fields: a value that cannot be
+ *  parsed to a finite number there is itself a hard violation (fail closed).
+ *  WEAK keys (`value`, `total`, ...) are only used when they parse cleanly,
+ *  because they also appear in non-financial payloads. */
+const STRONG_AMOUNT = /(amount|usd|usdc|usdt|lamport|satoshi|cents)/;
+const WEAK_AMOUNT = new Set(["value", "total", "subtotal", "price", "cost", "sum", "fee", "gwei", "wei"]);
+const DEST_EXACT = new Set(["to", "payto"]);
+const DEST_HINT = /(dest|recipient|payee|beneficiary|receiver|wallet|iban|address|account|target)/;
+const normKey = (k: string) => k.toLowerCase().replace(/[^a-z0-9]/g, "");
 
-/** Recursively collect amounts/destinations from nested payloads. */
-export function deepFinancials(value: unknown, amounts: number[] = [], destinations: string[] = [], key = ""): { amounts: number[]; destinations: string[] } {
-  if (AMOUNT_KEY.test(key)) { const n = num(value); if (n !== null) amounts.push(n); }
-  if (DEST_KEY.test(key) && typeof value === "string" && value) destinations.push(value);
-  if (Array.isArray(value)) value.forEach((v) => deepFinancials(v, amounts, destinations));
-  else if (value && typeof value === "object") for (const [k, v] of Object.entries(value)) deepFinancials(v, amounts, destinations, k);
-  return { amounts, destinations };
+/** Permissions and action types compare case-insensitively with spaces, "_" and "-" treated as ".",
+ *  so a typed "payment transfer" matches "payment.transfer". */
+export const normPerm = (s: string) => s.trim().toLowerCase().replace(/[\s_\-]+/g, ".");
+
+export type ParsedAmount = { ok: true; n: number } | { ok: false };
+/** Strict amount parser: finite decimal numbers only (optional currency
+ *  symbol/suffix and thousands separators). Exponent notation, NaN, Infinity
+ *  and free text are rejected rather than guessed at. */
+export function parseAmount(v: unknown): ParsedAmount {
+  if (typeof v === "number") return Number.isFinite(v) ? { ok: true, n: v } : { ok: false };
+  if (typeof v === "string") {
+    const s = v.trim().replace(/^[$€£]\s*/, "").replace(/[,_\s]/g, "").replace(/(usd|usdc|usdt)$/i, "");
+    if (/^-?\d+(\.\d+)?$/.test(s)) { const n = Number(s); return Number.isFinite(n) ? { ok: true, n } : { ok: false }; }
+  }
+  return { ok: false };
+}
+
+/** Recursively collect amounts/destinations from nested payloads (objects AND
+ *  arrays - array items inherit their parent key, so `{amounts:[1,2]}` is seen).
+ *  `invalid` lists strong amount fields whose value could not be parsed. */
+export function deepFinancials(value: unknown, amounts: number[] = [], destinations: string[] = [], key = "", invalid: string[] = []): { amounts: number[]; destinations: string[]; invalid: string[] } {
+  const nk = normKey(key);
+  if (value !== null && (typeof value === "string" || typeof value === "number")) {
+    const strong = STRONG_AMOUNT.test(nk), weak = WEAK_AMOUNT.has(nk);
+    if (strong || weak) {
+      const p = parseAmount(value);
+      if (p.ok) amounts.push(nk.includes("cents") ? p.n / 100 : p.n);
+      else if (strong) invalid.push(key);
+    }
+    if (typeof value === "string" && value && (DEST_EXACT.has(nk) || DEST_HINT.test(nk))) destinations.push(value);
+  }
+  if (Array.isArray(value)) value.forEach((v) => deepFinancials(v, amounts, destinations, key, invalid));
+  else if (value && typeof value === "object") for (const [k, v] of Object.entries(value)) deepFinancials(v, amounts, destinations, k, invalid);
+  return { amounts, destinations, invalid };
 }
 
 /** Deterministic heuristic engine. Heuristics are NOT perfect protection -
@@ -55,12 +91,17 @@ export function analyzeAction(input: {
     if (re.test(text)) push({ threatId: "credential-disclosure", category: "Data leakage", severity: "CRITICAL", description: "Action appears to contain or request credential material.", evidence: ["[redacted pattern match]"], mitigation: "Strip secrets, rotate any exposed credential, and block exfiltration." }, true);
   }
 
-  const { amounts, destinations } = deepFinancials(input.payload);
+  const { amounts, destinations, invalid } = deepFinancials(input.payload);
   const amount = amounts.length ? Math.max(...amounts) : null;
-  const prior = policy.priorSpentUsd ?? 0;
+  const prior = Math.max(0, policy.priorSpentUsd ?? 0);
+  for (const field of invalid) push({ threatId: "invalid-amount", category: "Financial policy violation", severity: "HIGH", description: `Amount field "${field}" is not a valid finite decimal number; refusing to guess its value.`, evidence: [`field=${field}`], mitigation: "Send amounts as plain finite decimal numbers (no exponent notation, NaN or free text)." }, true);
   for (const a of amounts) {
+    if (a < 0) push({ threatId: "negative-amount", category: "Financial policy violation", severity: "HIGH", description: `Negative amount ${a} is not allowed (it could offset cumulative spend).`, evidence: [`amount=${a}`], mitigation: "Submit refunds or reversals as their own explicitly permitted action type." }, true);
     if (a > policy.spendingLimitUsd) push({ threatId: "spending-limit", category: "Financial policy violation", severity: "HIGH", description: `Amount ${a} exceeds configured spending limit ${policy.spendingLimitUsd}.`, evidence: [`amount=${a}`, `limit=${policy.spendingLimitUsd}`], mitigation: "Reduce amount to within limit or obtain human approval." }, true);
-    if (a + prior > policy.spendingLimitUsd && a <= policy.spendingLimitUsd) push({ threatId: "cumulative-spending-limit", category: "Financial policy violation", severity: "HIGH", description: `Cumulative spend ${prior} + ${a} exceeds configured spending limit ${policy.spendingLimitUsd}.`, evidence: [`prior=${prior}`, `amount=${a}`, `limit=${policy.spendingLimitUsd}`], mitigation: "Wait for the limit window to reset or obtain human approval for the total." }, true);
+    if (a + prior > policy.spendingLimitUsd && a <= policy.spendingLimitUsd) push({ threatId: "cumulative-spending-limit", category: "Financial policy violation", severity: "HIGH", description: `Cumulative spend ${prior} + ${a} exceeds configured spending limit ${policy.spendingLimitUsd}.`, evidence: [`prior=${prior}`, `amount=${a}`, `limit=${policy.spendingLimitUsd}`], mitigation: "Wait for older spend to age out of the spending window or obtain human approval for the total." }, true);
+  }
+  if (policy.allowedDestinations.length > 0 && amounts.some((a) => a > 0) && destinations.length === 0) {
+    push({ threatId: "missing-destination", category: "Financial policy violation", severity: "HIGH", description: "A destination allow-list is configured but no recognisable destination field was found; deny by default.", evidence: ["no destination/recipient/payee/wallet field"], mitigation: "Include the destination in a recognised field (destination, recipient, payee, beneficiary, wallet, to)." }, true);
   }
   if (policy.allowedDestinations.length > 0) {
     const allowed = new Set(policy.allowedDestinations.map((d) => d.trim().toLowerCase()));
@@ -71,10 +112,10 @@ export function analyzeAction(input: {
   }
   if (policy.permissions.length === 0) {
     push({ threatId: "no-permissions-configured", category: "Unauthorized action", severity: "HIGH", description: "Agent has no configured permissions; deny-by-default applies to every action type.", evidence: [input.actionType], mitigation: "Configure explicit permissions for this agent before it acts." }, true);
-  } else if (!policy.permissions.includes(input.actionType)) {
+  } else if (!policy.permissions.map(normPerm).includes(normPerm(input.actionType))) {
     push({ threatId: "unauthorized-action", category: "Unauthorized action", severity: "HIGH", description: `Action type "${input.actionType}" is outside the agent's configured permissions.`, evidence: [input.actionType], mitigation: "Grant the permission explicitly or choose a permitted action type." }, true);
   }
-  const needsAuth = requiresAuth(input) || amounts.length > 0;
+  const needsAuth = requiresAuth(input) || amounts.length > 0 || invalid.length > 0;
   if (needsAuth && !validAuthorizationEvidence(input.authorizationEvidence)) {
     const claimed = input.authorized === true || Boolean(input.authorizationEvidence);
     push({ threatId: "missing-authorization", category: "Unauthorized action", severity: "HIGH", description: claimed ? "Authorization evidence is not a valid signed-approval reference (expected sig:<24+ chars>)." : "No verified authorization evidence supplied for this action.", evidence: ["authorizationEvidence missing or malformed"], mitigation: "Attach a valid signed authorization reference (sig:...) before execution." }, true);

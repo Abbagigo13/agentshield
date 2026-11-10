@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 
 export interface AppConfig {
   port: number; jwtSecret: string; scoreThreshold: number;
-  maxEvalAgeMs: number;
+  maxEvalAgeMs: number; spendWindowHours: number;
   serv: { baseUrl: string; apiKey: string; model: string; timeoutMs: number };
   reppo: { baseUrl: string; apiKey: string; settlementMinutes: number; timeoutMs: number };
 }
@@ -23,6 +23,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     jwtSecret: secret && !INSECURE.has(secret) ? secret : randomBytes(32).toString("hex"),
     scoreThreshold: Number(env.SCORE_THRESHOLD ?? 80),
     maxEvalAgeMs: Number(env.REPPO_MAX_EVAL_AGE_MS ?? 24 * 3600 * 1000),
+    // Cumulative-spend limits apply to spend inside this rolling window.
+    spendWindowHours: Number(env.SPEND_WINDOW_HOURS ?? 24),
     serv: {
       baseUrl: env.SERV_BASE_URL ?? "https://inference-api.openserv.ai",
       apiKey: env.SERV_API_KEY ?? "",

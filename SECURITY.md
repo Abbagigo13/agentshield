@@ -16,9 +16,18 @@
 - Destination allow-lists use exact matching (lookalikes rejected). Financial inspection is recursive (nested amounts/destinations). Spending limits are cumulative across an agent's non-blocked actions. Agents with no permissions are denied by default.
 - Authorization evidence must be a structured signed-approval reference (`sig:<24+ chars>`). This verifies format only; cryptographic issuer verification is not implemented and is not claimed.
 
+## Hardening notes
+- Agent credentials are scoped to their own agent: they cannot list, read, trace or retry other agents' actions, evaluations or decisions (owner users still see everything they own).
+- Amount/destination detection is key-name based but normalised (`usd_amount`, `AmountUSD`, `beneficiary`, `recipient_address`, ... and array items). Unparseable amounts (`"1e999"`, `NaN`, free text) in money fields and negative amounts are hard violations; an allow-list with an amount but no recognisable destination is denied. This remains a heuristic: for production, validate payloads against a strict per-action-type schema.
+- Cumulative spend uses a rolling `SPEND_WINDOW_HOURS` window and counts only positive amounts of non-blocked actions.
+- Reppo allows one PENDING evaluation per account. Queued (HTTP 409) evaluations are resubmitted oldest-first by the 60s worker (or manually via retry); FAILED/DENIED results route to human REVIEW instead of holding forever.
+- The live-event stream accepts only a 60-second, single-purpose ticket (`POST /api/v1/events/ticket`), never the session JWT, because the stream URL appears in logs.
+- Credit protection: per-IP auth throttling, per-account action rate and daily caps, and an `ALLOW_SIGNUP=false` switch.
+- Known remaining items: session JWTs live in `localStorage` (XSS exposure), and the data layer still reads whole tables and filters in memory (fine for a demo; add indexed `where` queries before scaling).
+
 ## Honest limits
 Heuristic prompt-injection/secret detection catches known patterns only; novel obfuscation and semantic attacks can evade it. SERV/Reppo add judgment but can err - hence human REVIEW routing, freshness checks, and deterministic policy supremacy.
 
 ## Configuration
-Server-only env: JWT_SECRET, SERV_API_KEY, REPPO_API_KEY, DATABASE_URL, SCORE_THRESHOLD, REPPO_MAX_EVAL_AGE_MS, CORS_ORIGIN. Never commit `.env`. Provider keys never reach the browser; the frontend only receives VITE_API_URL.
+Server-only env: ALLOW_SIGNUP, AUTH_RATE_LIMIT, ACTION_RATE_LIMIT, DAILY_ACTION_CAP, SPEND_WINDOW_HOURS, TRUST_PROXY, JWT_SECRET, SERV_API_KEY, REPPO_API_KEY, DATABASE_URL, SCORE_THRESHOLD, REPPO_MAX_EVAL_AGE_MS, CORS_ORIGIN. Never commit `.env`. Provider keys never reach the browser; the frontend only receives VITE_API_URL.
 Report issues privately; never include live credentials in reports.

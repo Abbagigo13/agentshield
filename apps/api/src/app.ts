@@ -8,14 +8,22 @@ import { z } from "zod";
 import { config, reppoConfigured, servConfigured } from "./config.js";
 import { decide } from "./decision.js";
 import { reppoGet, reppoSubmit, servAssess } from "./providers.js";
-import { analyzeAction, deepFinancials, redact } from "./security.js";
+import { analyzeAction, deepFinancials, normPerm, redact } from "./security.js";
 import { all, audit, claimApproval, filter, find, insert, prismaEnabled, remove, update, type Row } from "./db.js";
 import type { SecurityAssessment } from "@agentshield/shared";
 
 export const app = express();
 app.use(cors({ origin: process.env.CORS_ORIGIN?.split(",") ?? true }));
 app.use(express.json({ limit: "256kb" }));
+// Behind Railway/Vercel there is one proxy hop; without this every client shares
+// the proxy's IP and the IP-based limiters below would throttle everyone at once.
+app.set("trust proxy", process.env.TRUST_PROXY !== undefined ? Number(process.env.TRUST_PROXY) : process.env.NODE_ENV === "production" ? 1 : false);
 app.use(rateLimit({ windowMs: 60_000, limit: 300, standardHeaders: true }));
+// Limits are read per request so they are tunable via env; they are skipped
+// under test unless RATE_LIMIT_TEST=1 (the limiter tests opt in explicitly).
+const limiterOff = () => process.env.NODE_ENV === "test" && process.env.RATE_LIMIT_TEST !== "1";
+const authLimiter = rateLimit({ windowMs: 15 * 60_000, limit: () => Number(process.env.AUTH_RATE_LIMIT ?? 20), standardHeaders: true, skip: limiterOff, message: { error: "Too many sign-in attempts. Try again later." } });
+app.use(["/api/v1/auth/register", "/api/v1/auth/login"], authLimiter);
 
 export const hashKey = (k: string) => createHash("sha256").update(k).digest("hex");
 function keysEqual(a: string, b: string): boolean {
@@ -45,7 +53,8 @@ async function auth(req: Authed, res: Response, next: NextFunction) {
   const h = req.headers.authorization ?? "";
   if (!h.startsWith("Bearer ")) return res.status(401).json({ error: "Missing bearer token" });
   try {
-    const u = jwt.verify(h.slice(7), config.jwtSecret) as { id: string; email: string; role: string };
+    const u = jwt.verify(h.slice(7), config.jwtSecret) as { id: string; email: string; role: string; scope?: string };
+    if (u.scope) return res.status(401).json({ error: "Invalid or expired token" }); // scoped (e.g. SSE) tokens are not session tokens
     req.actor = { type: "user", id: u.id, email: u.email, role: u.role };
     next();
   } catch { return res.status(401).json({ error: "Invalid or expired token" }); }
@@ -62,7 +71,12 @@ function parse<T>(schema: z.ZodType<T>, req: Request, res: Response): T | null {
   if (!r.success) { fail(res, 400, r.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")); return null; }
   return r.data;
 }
-const owns = (req: Authed, row?: Row) => Boolean(row) && String(row!.ownerId ?? "") === ownerOf(req);
+/** Tenant check, plus: an agent credential only sees rows of its OWN agent
+ *  (rows without an agentId are never visible to agent actors). */
+const owns = (req: Authed, row?: Row) => {
+  if (!row || String(row.ownerId ?? "") !== ownerOf(req)) return false;
+  return req.actor!.type !== "agent" || String(row.agentId ?? "") === req.actor!.agentId;
+};
 
 // ---------- Live events (SSE) ----------
 type SseClient = { ownerId: string; res: Response };
@@ -75,6 +89,7 @@ export function emitEvent(ownerId: string, type: string, message: string) {
 
 // ---------- Auth ----------
 app.post("/api/v1/auth/register", async (req, res) => {
+  if (process.env.ALLOW_SIGNUP === "false") return fail(res, 403, "Sign-up is currently closed.");
   const b = parse(z.object({ email: z.string().email(), password: z.string().min(8), name: z.string().optional() }), req, res); if (!b) return;
   if (await find("users", (u) => u.email === b.email)) return fail(res, 409, "Email already registered");
   const user = await insert("users", { email: b.email, name: b.name ?? null, role: "OWNER", passwordHash: await bcrypt.hash(b.password, 10) });
@@ -92,7 +107,7 @@ const pub = (u: Row) => ({ id: u.id, email: u.email, name: u.name, role: u.role 
 app.get("/api/v1/auth/me", auth, requireUser, async (req: Authed, res) => { const u = await find("users", (x) => x.id === (req.actor as { id: string }).id); u ? ok(res, pub(u)) : fail(res, 404, "User not found"); });
 
 // ---------- Agents + keys ----------
-const agentSchema = z.object({ name: z.string().min(1).max(120), description: z.string().max(1000).optional(), permissions: z.array(z.string()).default([]), spendingLimitUsd: z.number().min(0).default(100), allowedDestinations: z.array(z.string()).default([]) });
+const agentSchema = z.object({ name: z.string().min(1).max(120), description: z.string().max(1000).optional(), permissions: z.array(z.string()).default([]).transform((p) => [...new Set(p.map(normPerm).filter(Boolean))]), spendingLimitUsd: z.number().min(0).default(100), allowedDestinations: z.array(z.string()).default([]) });
 async function issueKey(agentId: string): Promise<string> {
   const rawKey = `as_agent_${randomBytes(24).toString("hex")}`;
   await insert("agentKeys", { agentId, keyPrefix: rawKey.slice(0, 16), keyHash: hashKey(rawKey), revokedAt: null, expiresAt: null });
@@ -142,9 +157,13 @@ const actionSchema = z.object({
   parentActionId: z.string().optional(), idempotencyKey: z.string().max(200).optional(),
 });
 
+/** Spend by this agent inside the rolling SPEND_WINDOW_HOURS window. Blocked
+ *  actions never count; only positive amounts count (negatives are rejected
+ *  upstream and must never be able to offset real spend). */
 async function priorSpentUsd(agentId: string): Promise<number> {
-  return (await filter("actions", (a) => a.agentId === agentId && a.status !== "BLOCKED"))
-    .reduce((s, a) => s + deepFinancials(a.payload ?? {}).amounts.reduce((x, y) => x + y, 0), 0);
+  const cutoff = Date.now() - config.spendWindowHours * 3600 * 1000;
+  return (await filter("actions", (a) => a.agentId === agentId && a.status !== "BLOCKED" && Date.parse(String(a.createdAt ?? "")) >= cutoff))
+    .reduce((s, a) => s + deepFinancials(a.payload ?? {}).amounts.filter((x) => x > 0).reduce((x, y) => x + y, 0), 0);
 }
 function servFromAssessment(a?: Row): { serv: SecurityAssessment | null; servStatus: "ok" | "unavailable" | "error" } {
   if (!a) return { serv: null, servStatus: "error" };
@@ -181,6 +200,7 @@ export async function pollAndReevaluate(evaluationId: string) {
   if (!ev) return null;
   if (!ev.externalEvalId || !reppoConfigured()) return { evaluation: ev, decision: await find("decisions", (d) => d.actionId === ev.actionId) ?? null };
   const fresh = await reppoGet(String(ev.externalEvalId));
+  const prevStatus = String(ev.status); // the store may mutate `ev` in place on update
   const updated = await update("evaluations", ev.id, { status: fresh.status, score: fresh.score, confidence: fresh.confidence, decision: fresh.decision, route: fresh.route, critiques: fresh.critiques, evidence: fresh.evidence, settledAt: fresh.settledAt ?? null, rawResponse: redact(fresh.raw) });
   if (fresh.status === "SETTLED") {
     await audit("evaluation.settled", { ownerId: ev.ownerId, agentId: ev.agentId, actionId: ev.actionId });
@@ -189,11 +209,56 @@ export async function pollAndReevaluate(evaluationId: string) {
     await audit("decision.reevaluated", { ownerId: ev.ownerId, agentId: ev.agentId, actionId: ev.actionId }); emitEvent(String(ev.ownerId), "evaluation", `Evaluation settled${typeof fresh.score === "number" ? ` - score ${fresh.score}` : ""}; decision re-evaluated`);
     return { evaluation: updated, decision: r?.decision ?? null };
   }
+  // FAILED/DENIED are terminal: re-run the decision so the action leaves HOLD
+  // (it routes to REVIEW - never approval - because nothing settled).
+  if (fresh.status !== prevStatus && (fresh.status === "FAILED" || fresh.status === "DENIED")) {
+    await audit("evaluation.terminal", { ownerId: ev.ownerId, agentId: ev.agentId, actionId: ev.actionId });
+    const r = await reevaluate(String(ev.actionId));
+    emitEvent(String(ev.ownerId), "evaluation", `Evaluation ${String(fresh.status).toLowerCase()}; routed to human review`);
+    return { evaluation: updated, decision: r?.decision ?? null };
+  }
   return { evaluation: updated, decision: await find("decisions", (d) => d.actionId === ev.actionId) ?? null };
 }
+
+const reppoContextFor = (agent: Row, actionType: string) => {
+  const limit = Number(agent.spendingLimitUsd ?? 100), dests = (agent.allowedDestinations as string[]) ?? [];
+  return `AgentShield security evaluation. Agent: ${String(agent.name)}. Action type: ${actionType}. Policy: spending limit ${limit} USD; allowed destinations: ${dests.join(", ") || "none specified"}.`;
+};
+
+/** Submit (or resubmit) a QUEUED evaluation to Reppo. Reppo allows one PENDING
+ *  evaluation per account, so a 409 keeps it QUEUED for the next attempt; any
+ *  other error is terminal (FAILED) and routes the action to human review. */
+export async function resubmitQueued(evaluationId: string): Promise<Row | null> {
+  const done = (r: Row | undefined) => r ?? null;
+  const ev = await find("evaluations", (e) => e.id === evaluationId);
+  if (!ev || ev.status !== "QUEUED" || ev.externalEvalId || !reppoConfigured()) return ev ?? null;
+  const action = await find("actions", (a) => a.id === ev.actionId);
+  const agent = action ? await find("agents", (a) => a.id === action.agentId) : undefined;
+  if (!action || !agent) { const f = await update("evaluations", ev.id, { status: "FAILED", note: "Action or agent no longer exists." }); await reevaluate(String(ev.actionId)); return done(f); }
+  try {
+    const sub = await reppoSubmit({ actionType: String(action.actionType), payload: action.payload, reasoning: action.reasoning ? String(action.reasoning) : undefined, context: reppoContextFor(agent, String(action.actionType)) });
+    const u = await update("evaluations", ev.id, { externalEvalId: sub.evalId, status: sub.status, note: null, rawResponse: redact(sub.raw) });
+    await audit("evaluation.submitted", { ownerId: ev.ownerId, agentId: ev.agentId, actionId: ev.actionId });
+    emitEvent(String(ev.ownerId), "evaluation", "Queued evaluation submitted to Reppo");
+    return done(u);
+  } catch (e) {
+    if ((e as { code?: string }).code === "CONFLICT") return ev; // still queued
+    const u = await update("evaluations", ev.id, { status: "FAILED", note: e instanceof Error ? e.message : String(e) });
+    await reevaluate(String(ev.actionId));
+    return done(u);
+  }
+}
+
 export async function pollPendingEvaluations(): Promise<number> {
   let n = 0;
   for (const ev of await filter("evaluations", (e) => e.status === "PENDING" && Boolean(e.externalEvalId))) { try { await pollAndReevaluate(ev.id); n++; } catch { /* keep polling others */ } }
+  // Drain the queue oldest-first, but only while nothing is PENDING on the account.
+  if (reppoConfigured() && !(await filter("evaluations", (e) => e.status === "PENDING" && Boolean(e.externalEvalId))).length) {
+    const queued = (await filter("evaluations", (e) => e.status === "QUEUED" && !e.externalEvalId)).sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+    for (const ev of queued) {
+      try { const r = await resubmitQueued(ev.id); n++; if (r?.status === "PENDING" || r?.status === "QUEUED") break; } catch { break; }
+    }
+  }
   return n;
 }
 
@@ -206,6 +271,12 @@ async function processAction(req: Authed, res: Response) {
   if (req.actor!.type === "user" && String(agent.ownerId) !== req.actor!.id) return fail(res, 404, "Agent not found");
   if (req.actor!.type === "agent" && req.actor!.agentId !== String(agent.id)) return fail(res, 403, "Agent key does not match agentId");
   if (agent.status !== "ACTIVE") return fail(res, 403, "Agent is not ACTIVE");
+  // A parent (original) action must belong to the same tenant - and, for agent keys, the same agent -
+  // otherwise its Reppo score would leak into this caller's Improvement Lab.
+  if (b.parentActionId) {
+    const parent = await find("actions", (a) => a.id === b.parentActionId);
+    if (!parent || String(parent.ownerId) !== String(agent.ownerId) || String(parent.agentId) !== String(agent.id)) return fail(res, 404, "Parent action not found");
+  }
   if (b.idempotencyKey) {
     const dup = await find("actions", (a) => a.idempotencyKey === b.idempotencyKey && a.ownerId === agent.ownerId);
     if (dup) return ok(res, { action: dup, duplicate: true });
@@ -240,7 +311,7 @@ async function processAction(req: Authed, res: Response) {
     evaluation = await insert("evaluations", { actionId: action.id, ownerId: agent.ownerId, agentId: b.agentId, externalEvalId: null, status: "NOT_SUBMITTED", score: null, confidence: null, decision: null, route: null, critiques: [], evidence: [], settledAt: null, note: "REPPO_API_KEY not configured - no evaluation submitted. This is not an approval." });
   } else {
     try {
-      const sub = await reppoSubmit({ actionType: b.actionType, payload: b.payload, reasoning: b.reasoning, context: `AgentShield security evaluation. Agent: ${String(agent.name)}. Action type: ${b.actionType}. Policy: spending limit ${policy.spendingLimitUsd} USD; allowed destinations: ${policy.allowedDestinations.join(", ") || "(any)"}. Synthetic/demo data only - no real credentials or customer data.` });
+      const sub = await reppoSubmit({ actionType: b.actionType, payload: b.payload, reasoning: b.reasoning, context: reppoContextFor(agent, b.actionType) });
       evaluation = await insert("evaluations", { actionId: action.id, ownerId: agent.ownerId, agentId: b.agentId, externalEvalId: sub.evalId, status: sub.status, score: null, confidence: null, decision: null, route: null, critiques: [], evidence: [], settledAt: null, rawResponse: redact(sub.raw) });
       await audit("evaluation.submitted", { ownerId: agent.ownerId, agentId: b.agentId, actionId: action.id });
     } catch (e) {
@@ -266,7 +337,16 @@ async function processAction(req: Authed, res: Response) {
     feedback: r?.result.outcome === "APPROVE" ? ["Action approved. No changes required."] : [...hardViolations, ...findings.map((f) => f.mitigation)],
   }, 201);
 }
-app.post("/api/v1/actions/analyze", auth, processAction);
+// Every analysis can spend SERV/Reppo credits, so cap it per tenant (not per IP).
+const analyzeLimiter = rateLimit({ windowMs: 60_000, limit: () => Number(process.env.ACTION_RATE_LIMIT ?? 30), standardHeaders: true, skip: limiterOff, keyGenerator: (req) => `owner:${ownerOf(req as Authed)}`, message: { error: "Too many actions submitted. Slow down." } });
+async function dailyCap(req: Authed, res: Response, next: NextFunction) {
+  if (limiterOff()) return next();
+  const cutoff = Date.now() - 24 * 3600 * 1000, me = ownerOf(req);
+  const used = (await filter("actions", (a) => a.ownerId === me && Date.parse(String(a.createdAt ?? "")) >= cutoff)).length;
+  if (used >= Number(process.env.DAILY_ACTION_CAP ?? 200)) return fail(res, 429, "Daily action limit reached for this account.");
+  next();
+}
+app.post("/api/v1/actions/analyze", auth, analyzeLimiter, dailyCap, processAction);
 app.get("/api/v1/actions", auth, async (req: Authed, res) => ok(res, (await filter("actions", (a) => owns(req, a))).slice().reverse()));
 app.get("/api/v1/actions/:id", auth, async (req: Authed, res) => { const a = await find("actions", (x) => x.id === req.params.id); owns(req, a) ? ok(res, a) : fail(res, 404, "Action not found"); });
 app.get("/api/v1/actions/:id/trace", auth, async (req: Authed, res) => {
@@ -292,13 +372,22 @@ app.post("/api/v1/evaluations/:id/retry", auth, async (req: Authed, res) => {
   if (ev!.externalEvalId) {
     try { return ok(res, await pollAndReevaluate(ev!.id)); } catch (e) { return fail(res, 502, e instanceof Error ? e.message : String(e)); }
   }
-  if (ev!.status === "QUEUED") return fail(res, 409, "Still queued: another Reppo evaluation is pending for this account. Retry after it settles.");
+  if (ev!.status === "QUEUED") {
+    if (!reppoConfigured()) return fail(res, 400, "REPPO_API_KEY is not configured; cannot submit the queued evaluation.");
+    const u = await resubmitQueued(ev!.id);
+    if (u?.status === "QUEUED") return fail(res, 409, "Still queued: another Reppo evaluation is pending for this account. It is retried automatically every minute.");
+    return ok(res, { evaluation: u, decision: await find("decisions", (d) => d.actionId === ev!.actionId) ?? null });
+  }
   return fail(res, 400, "Evaluation was never submitted (no evalId); submit a new action instead.");
 });
 
 // ---------- Decisions / approvals ----------
 app.get("/api/v1/decisions", auth, async (req: Authed, res) => {
-  const decisions = await filter("decisions", (d) => owns(req, d));
+  let decisions = await filter("decisions", (d) => String(d.ownerId ?? "") === ownerOf(req));
+  if (req.actor!.type === "agent") { // decisions carry no agentId: scope through their action
+    const mine = new Set((await filter("actions", (a) => a.agentId === (req.actor as { agentId: string }).agentId)).map((a) => String(a.id)));
+    decisions = decisions.filter((d) => mine.has(String(d.actionId)));
+  }
   const approvals = await all("approvals");
   ok(res, decisions.slice().reverse().map((d) => ({ ...d, approval: approvals.find((a) => a.decisionId === d.id) ?? null })));
 });
@@ -388,9 +477,14 @@ app.post("/api/v1/integrations/test", auth, requireUser, async (req, res) => {
   } catch (e) { return ok(res, { provider: b.provider, ok: false, status: "error", detail: e instanceof Error ? e.message.slice(0, 200) : String(e) }); }
 });
 
+// EventSource cannot send headers, so the stream authenticates via the query
+// string. That URL ends up in logs, so it only accepts a 60-second, single-purpose
+// ticket - never the long-lived session JWT.
+app.post("/api/v1/events/ticket", auth, requireUser, (req: Authed, res) => ok(res, { ticket: jwt.sign({ id: (req.actor as { id: string }).id, scope: "sse" }, config.jwtSecret, { expiresIn: "60s" }) }));
 app.get("/api/v1/events", (req, res) => {
   try {
-    const u = jwt.verify(String(req.query.token ?? ""), config.jwtSecret) as { id: string };
+    const u = jwt.verify(String(req.query.token ?? ""), config.jwtSecret) as { id: string; scope?: string };
+    if (u.scope !== "sse") throw new Error("not an SSE ticket");
     res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
     res.write(`data: ${JSON.stringify({ type: "connected", message: "Live updates connected", at: new Date().toISOString() })}\n\n`);
     const client: SseClient = { ownerId: u.id, res };
