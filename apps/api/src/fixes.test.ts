@@ -95,15 +95,15 @@ describe("agent credentials are scoped to their own agent", () => {
 });
 
 describe("Reppo queue + terminal states (mocked Reppo)", () => {
-  let mode: "conflict" | "accept" | "denied" = "conflict";
+  let mode: "conflict" | "accept" | "failed" = "conflict";
   beforeAll(() => {
     config.reppo.apiKey = "test-reppo-key";
-    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
-      if (String(url).includes("/submit")) {
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: { method?: string }) => {
+      if (init?.method === "POST") {
         if (mode === "conflict") return { status: 409, text: async () => "{}" };
-        return { status: 201, text: async () => JSON.stringify({ id: "i", evalId: `ev-${Math.random().toString(36).slice(2)}`, status: "PENDING" }) };
+        return { status: 201, text: async () => JSON.stringify({ id: `ev-${Math.random().toString(36).slice(2)}`, status: "QUEUED" }) };
       }
-      return { status: 200, text: async () => JSON.stringify({ evalId: "x", status: mode === "denied" ? "DENIED" : "PENDING", settledAt: null, result: null }) };
+      return { status: 200, text: async () => JSON.stringify({ id: "x", status: mode === "failed" ? "FAILED" : "PROCESSING", result: mode === "failed" ? { reason: "judging failed" } : null }) };
     }) as never);
   });
   afterAll(() => { vi.unstubAllGlobals(); config.reppo.apiKey = ""; });
@@ -135,14 +135,14 @@ describe("Reppo queue + terminal states (mocked Reppo)", () => {
     expect(r.status).toBe(200);
     expect(r.body.data.evaluation.status).toBe("PENDING");
   });
-  it("a DENIED/FAILED Reppo result leaves HOLD and routes to REVIEW (never approve)", async () => {
+  it("a FAILED Reppo result leaves HOLD and routes to REVIEW (never approve)", async () => {
     mode = "accept";
     for (const e of (await request(app).get("/api/v1/evaluations").set(U())).body.data) if (e.status === "PENDING" || e.status === "QUEUED") await update("evaluations", e.id, { status: "SETTLED" });
     const sub = await request(app).post("/api/v1/actions/analyze").set(U()).send(good(agentA, 5));
     expect(sub.body.data.decision.outcome).toBe("HOLD");
-    mode = "denied";
+    mode = "failed";
     const polled = await request(app).get(`/api/v1/evaluations/${sub.body.data.evaluation.id}`).set(U());
-    expect(polled.body.data.evaluation.status).toBe("DENIED");
+    expect(polled.body.data.evaluation.status).toBe("FAILED");
     expect(polled.body.data.decision.outcome).toBe("REVIEW");
   });
 });
@@ -201,5 +201,36 @@ describe("revise & resubmit (parentActionId)", () => {
     // the improvement row is created for the legitimate revision
     const imp = await request(app).get("/api/v1/analytics/improvements").set(U());
     expect(imp.body.data.items.some((i: any) => i.revisedActionId === ok.body.data.action.id)).toBe(true);
+  });
+});
+
+describe("Reppo connection test + daily budget (current API, mocked)", () => {
+  afterAll(() => { vi.unstubAllGlobals(); config.reppo.apiKey = ""; config.reppo.dailyBudget = 30; config.reppo.mode = "evals"; });
+  it("connection test: 404 on the probe id = key accepted; 401 = key rejected", async () => {
+    config.reppo.apiKey = "test-reppo-key"; config.reppo.mode = "evals";
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 404, text: async () => "{}" })) as never);
+    const okRes = await request(app).post("/api/v1/integrations/test").set(U()).send({ provider: "reppo" });
+    expect(okRes.body.data).toMatchObject({ ok: true, status: "connected" });
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 401, text: async () => "{}" })) as never);
+    const bad = await request(app).post("/api/v1/integrations/test").set(U()).send({ provider: "reppo" });
+    expect(bad.body.data.ok).toBe(false); expect(bad.body.data.detail).toMatch(/rejected the API key/);
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 500, text: async () => "{}" })) as never);
+    const down = await request(app).post("/api/v1/integrations/test").set(U()).send({ provider: "reppo" });
+    expect(down.body.data.ok).toBe(false); expect(down.body.data.status).toBe("http_500");
+  });
+  it("daily budget: once reached, actions are not sent to Reppo and route to REVIEW", async () => {
+    config.reppo.apiKey = "test-reppo-key";
+    let posts = 0;
+    vi.stubGlobal("fetch", vi.fn(async (_u: string, init?: { method?: string }) => { if (init?.method === "POST") { posts++; return { status: 201, text: async () => JSON.stringify({ id: `b${posts}`, status: "QUEUED" }) }; } return { status: 200, text: async () => JSON.stringify({ id: "b", status: "PROCESSING", result: null }) }; }) as never);
+    const used = (await request(app).get("/api/v1/evaluations").set(U())).body.data.filter((e: any) => e.externalEvalId).length;
+    config.reppo.dailyBudget = used + 1; // exactly one more submission allowed
+    for (const e of (await request(app).get("/api/v1/evaluations").set(U())).body.data) if (e.status === "PENDING" || e.status === "QUEUED") await update("evaluations", e.id, { status: "SETTLED" });
+    const first = await request(app).post("/api/v1/actions/analyze").set(U()).send(good(agentA, 1));
+    expect(first.body.data.evaluation.status).toBe("PENDING");
+    const second = await request(app).post("/api/v1/actions/analyze").set(U()).send(good(agentA, 1));
+    expect(second.body.data.evaluation.status).toBe("NOT_SUBMITTED");
+    expect(second.body.data.evaluation.note).toMatch(/daily budget/);
+    expect(second.body.data.decision.outcome).toBe("REVIEW");
+    expect(posts).toBe(1);
   });
 });

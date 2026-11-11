@@ -20,7 +20,7 @@
 - Agent credentials are scoped to their own agent: they cannot list, read, trace or retry other agents' actions, evaluations or decisions (owner users still see everything they own).
 - Amount/destination detection is key-name based but normalised (`usd_amount`, `AmountUSD`, `beneficiary`, `recipient_address`, ... and array items). Unparseable amounts (`"1e999"`, `NaN`, free text) in money fields and negative amounts are hard violations; an allow-list with an amount but no recognisable destination is denied. This remains a heuristic: for production, validate payloads against a strict per-action-type schema.
 - Cumulative spend uses a rolling `SPEND_WINDOW_HOURS` window and counts only positive amounts of non-blocked actions.
-- Reppo allows one PENDING evaluation per account. Queued (HTTP 409) evaluations are resubmitted oldest-first by the 60s worker (or manually via retry); FAILED/DENIED results route to human REVIEW instead of holding forever.
+- Reppo allows one PENDING evaluation per account (the current API settles in about a minute; `REPPO_DAILY_BUDGET` caps credit spend per 24h). Queued (HTTP 409) evaluations are resubmitted oldest-first by the 60s worker (or manually via retry); FAILED/DENIED results route to human REVIEW instead of holding forever.
 - The live-event stream accepts only a 60-second, single-purpose ticket (`POST /api/v1/events/ticket`), never the session JWT, because the stream URL appears in logs.
 - Credit protection: per-IP auth throttling, per-account action rate and daily caps, and an `ALLOW_SIGNUP=false` switch.
 - Known remaining items: session JWTs live in `localStorage` (XSS exposure), and the data layer still reads whole tables and filters in memory (fine for a demo; add indexed `where` queries before scaling).

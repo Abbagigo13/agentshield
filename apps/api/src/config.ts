@@ -4,7 +4,7 @@ export interface AppConfig {
   port: number; jwtSecret: string; scoreThreshold: number;
   maxEvalAgeMs: number; spendWindowHours: number;
   serv: { baseUrl: string; apiKey: string; model: string; timeoutMs: number };
-  reppo: { baseUrl: string; apiKey: string; settlementMinutes: number; timeoutMs: number };
+  reppo: { baseUrl: string; apiKey: string; settlementMinutes: number; timeoutMs: number; mode: "evals" | "legacy"; taskType: string; dailyBudget: number };
 }
 
 const INSECURE = new Set(["", "dev-only-change-me-agentshield-secret", "change-me-to-a-long-random-string", "secret", "changeme"]);
@@ -36,6 +36,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       apiKey: env.REPPO_API_KEY ?? "",
       settlementMinutes: Number(env.REPPO_SETTLEMENT_MINUTES ?? 10),
       timeoutMs: Number(env.REPPO_TIMEOUT_MS ?? 20000),
+      // "evals" = current API (POST /agents/evals, ~30-90s); "legacy" = old /agents/eval-requests/* (10+ min).
+      mode: (env.REPPO_API_MODE === "legacy" ? "legacy" : "evals") as "evals" | "legacy",
+      taskType: env.REPPO_TASK_TYPE ?? "response",
+      // Each evaluation costs Reppo credits (~440). Cap submissions per rolling 24h so open sign-up cannot drain them.
+      dailyBudget: Number(env.REPPO_DAILY_BUDGET ?? 30),
     },
   };
 }

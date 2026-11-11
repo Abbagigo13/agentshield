@@ -220,6 +220,13 @@ export async function pollAndReevaluate(evaluationId: string) {
   return { evaluation: updated, decision: await find("decisions", (d) => d.actionId === ev.actionId) ?? null };
 }
 
+/** Evaluations actually sent to Reppo in the last 24h (each costs credits). */
+async function reppoSubmissionsToday(): Promise<number> {
+  const cutoff = Date.now() - 24 * 3600 * 1000;
+  return (await filter("evaluations", (e) => Boolean(e.externalEvalId) && Date.parse(String(e.createdAt ?? "")) >= cutoff)).length;
+}
+const budgetNote = () => `Reppo daily budget reached (${config.reppo.dailyBudget} evaluations per 24h) - not submitted to protect credits; routed to human review.`;
+
 const reppoContextFor = (agent: Row, actionType: string) => {
   const limit = Number(agent.spendingLimitUsd ?? 100), dests = (agent.allowedDestinations as string[]) ?? [];
   return `AgentShield security evaluation. Agent: ${String(agent.name)}. Action type: ${actionType}. Policy: spending limit ${limit} USD; allowed destinations: ${dests.join(", ") || "none specified"}.`;
@@ -232,6 +239,7 @@ export async function resubmitQueued(evaluationId: string): Promise<Row | null> 
   const done = (r: Row | undefined) => r ?? null;
   const ev = await find("evaluations", (e) => e.id === evaluationId);
   if (!ev || ev.status !== "QUEUED" || ev.externalEvalId || !reppoConfigured()) return ev ?? null;
+  if ((await reppoSubmissionsToday()) >= config.reppo.dailyBudget) { const f = await update("evaluations", ev.id, { status: "NOT_SUBMITTED", note: budgetNote() }); await reevaluate(String(ev.actionId)); return done(f); }
   const action = await find("actions", (a) => a.id === ev.actionId);
   const agent = action ? await find("agents", (a) => a.id === action.agentId) : undefined;
   if (!action || !agent) { const f = await update("evaluations", ev.id, { status: "FAILED", note: "Action or agent no longer exists." }); await reevaluate(String(ev.actionId)); return done(f); }
@@ -309,6 +317,8 @@ async function processAction(req: Authed, res: Response) {
     evaluation = await insert("evaluations", { actionId: action.id, ownerId: agent.ownerId, agentId: b.agentId, externalEvalId: null, status: "NOT_SUBMITTED", score: null, confidence: null, decision: null, route: null, critiques: [], evidence: [], settledAt: null, note: "Not submitted: deterministic policy already blocks this action; Reppo credits are not spent on hard-blocked actions." });
   } else if (!reppoConfigured()) {
     evaluation = await insert("evaluations", { actionId: action.id, ownerId: agent.ownerId, agentId: b.agentId, externalEvalId: null, status: "NOT_SUBMITTED", score: null, confidence: null, decision: null, route: null, critiques: [], evidence: [], settledAt: null, note: "REPPO_API_KEY not configured - no evaluation submitted. This is not an approval." });
+  } else if ((await reppoSubmissionsToday()) >= config.reppo.dailyBudget) {
+    evaluation = await insert("evaluations", { actionId: action.id, ownerId: agent.ownerId, agentId: b.agentId, externalEvalId: null, status: "NOT_SUBMITTED", score: null, confidence: null, decision: null, route: null, critiques: [], evidence: [], settledAt: null, note: budgetNote() });
   } else {
     try {
       const sub = await reppoSubmit({ actionType: b.actionType, payload: b.payload, reasoning: b.reasoning, context: reppoContextFor(agent, b.actionType) });
@@ -472,8 +482,12 @@ app.post("/api/v1/integrations/test", auth, requireUser, async (req, res) => {
       return ok(res, { provider: "serv", ok: r.provider === "serv", status: r.provider, detail: `model=${config.serv.model} requestId=${r.requestId}` });
     }
     if (!reppoConfigured()) return ok(res, { provider: "reppo", ok: false, status: "not_configured", detail: "REPPO_API_KEY missing" });
-    const r = await fetch(`${config.reppo.baseUrl}/agents/eval-requests/pending?page=1&pageSize=1`, { headers: { Authorization: `Bearer ${config.reppo.apiKey}` } });
-    return ok(res, { provider: "reppo", ok: r.ok, status: r.ok ? "connected" : `http_${r.status}`, detail: r.ok ? "Authenticated against Reppo Evaluation API." : `Reppo returned HTTP ${r.status} (check key/credits).` });
+    // No credits are spent: legacy lists pending evaluations; the current API has no list/ping endpoint, so we read
+    // a made-up evaluation id - 401/403 means a bad key, 404/400 means the key was accepted and the id simply doesn't exist.
+    const url = config.reppo.mode === "legacy" ? `${config.reppo.baseUrl}/agents/eval-requests/pending?page=1&pageSize=1` : `${config.reppo.baseUrl}/agents/evals/agentshield-connection-check`;
+    const r = await fetch(url, { headers: { Authorization: `Bearer ${config.reppo.apiKey}` } });
+    const authed = config.reppo.mode === "legacy" ? r.ok : r.ok || r.status === 404 || r.status === 400;
+    return ok(res, { provider: "reppo", ok: authed, status: authed ? "connected" : `http_${r.status}`, detail: authed ? `API key accepted by Reppo (${config.reppo.mode} API). Each evaluation costs credits; none were spent by this check.` : r.status === 401 || r.status === 403 ? `Reppo rejected the API key (HTTP ${r.status}). Generate a new key at eval.reppo.xyz.` : `Reppo returned HTTP ${r.status} from ${new URL(url).pathname}. If this persists, Reppo may have changed its API (REPPO_API_MODE=${config.reppo.mode}).` });
   } catch (e) { return ok(res, { provider: b.provider, ok: false, status: "error", detail: e instanceof Error ? e.message.slice(0, 200) : String(e) }); }
 });
 

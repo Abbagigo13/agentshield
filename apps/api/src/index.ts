@@ -12,6 +12,7 @@ app.listen(config.port, () => console.log(`AgentShield API listening on :${confi
 // Background evaluation worker: polls PENDING Reppo evaluations and
 // re-evaluates their decisions on settlement. Disabled without a Reppo key.
 if (reppoConfigured()) {
-  setInterval(() => { void pollPendingEvaluations(); }, 60_000).unref();
+  // The current Reppo API settles in ~30-90s, so poll often (cheap: at most one pending evaluation per account).
+  setInterval(() => { void pollPendingEvaluations(); }, Number(process.env.REPPO_POLL_MS ?? 15_000)).unref();
   console.log("Reppo polling worker enabled (60s interval)");
 }

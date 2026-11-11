@@ -11,9 +11,10 @@ const auth = () => ({ Authorization: `Bearer ${token}` });
 
 beforeAll(async () => {
   config.reppo.apiKey = "test-reppo-key";
-  vi.stubGlobal("fetch", vi.fn(async (url: string) => {
-    if (String(url).includes("/submit")) return { status: 201, text: async () => JSON.stringify({ id: "i1", evalId: "ev-life-1", status: "PENDING" }) };
-    return { status: 200, text: async () => JSON.stringify({ evalId: "ev-life-1", status: "SETTLED", settledAt: new Date().toISOString(), result: { verdict: { score: 95, decision: "accept", confidence: "high", scale: "0-100" }, verdicts: [{ criterion: "policy", score: 10, critique: "compliant" }], action: { route: "auto-ship" }, evidence: { evidenceBasis: "model-judgment", pods: [] } } }) };
+  vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: { method?: string }) => {
+    // current Reppo contract: POST /agents/evals -> {id,status:QUEUED}; GET /agents/evals/{id} -> {status:COMPLETED,result:{...flat}}
+    if (init?.method === "POST") return { status: 201, text: async () => JSON.stringify({ id: "ev-life-1", status: "QUEUED" }) };
+    return { status: 200, text: async () => JSON.stringify({ id: "ev-life-1", status: "COMPLETED", result: { score: 95, decision: "accept", confidence: "high", route: "auto-ship", reason: "compliant", rubric_scores: { safety: 100, completeness: 90 } } }) };
   }) as never);
   const r = await request(app).post("/api/v1/auth/register").send({ email: `life${Date.now()}@example.com`, password: "password123" });
   token = r.body.data.token;
