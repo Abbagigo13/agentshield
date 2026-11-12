@@ -6,6 +6,9 @@ import Landing from "./pages/Landing";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 
+const Docs = lazy(() => import("./pages/Docs"));
+const Faq = lazy(() => import("./pages/Faq"));
+const HowItWorks = lazy(() => import("./pages/HowItWorks"));
 const Overview = lazy(() => import("./pages/Overview"));
 const Agents = lazy(() => import("./pages/Agents"));
 const Monitoring = lazy(() => import("./pages/Monitoring"));
@@ -25,6 +28,9 @@ function LazyPage({ children }: { children: ReactNode }) {
 export default function App() {
   return <Routes>
     <Route path="/" element={<Landing />} />
+    <Route path="/docs" element={<LazyPage><Docs /></LazyPage>} />
+    <Route path="/faq" element={<LazyPage><Faq /></LazyPage>} />
+    <Route path="/how-it-works" element={<LazyPage><HowItWorks /></LazyPage>} />
     <Route path="/login" element={<Login />} />
     <Route path="/register" element={<Register />} />
     <Route path="/app" element={<Guard><LazyPage><Overview /></LazyPage></Guard>} />

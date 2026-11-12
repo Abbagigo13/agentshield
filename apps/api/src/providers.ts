@@ -123,7 +123,7 @@ export function normalizeReppo(raw: unknown, evalId: string): ReppoEvaluation {
   let critiques: unknown[] = Array.isArray(result?.verdicts) ? result!.verdicts : [];
   if (!critiques.length && result) {
     if (typeof result.reason === "string" && result.reason) critiques.push({ criterion: "Overall", critique: result.reason });
-    if (result.rubric_scores && typeof result.rubric_scores === "object") for (const [k, v] of Object.entries(result.rubric_scores)) critiques.push({ criterion: k.replace(/_/g, " "), score: asNum(v), critique: `${asNum(v) ?? "n/a"}/100` });
+    if (result.rubric_scores && typeof result.rubric_scores === "object") for (const [k, v] of Object.entries(result.rubric_scores)) critiques.push({ criterion: k.replace(/_/g, " "), score: asNum(v), critique: "" });
   }
   const failReason = status === "FAILED" ? (result?.reason ?? r.error ?? null) : null;
   const settled = status === "SETTLED";

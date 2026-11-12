@@ -38,7 +38,7 @@ export function ReviseDrawer({ actionId, onClose, onDone }: { actionId: string; 
       {(fixes.length > 0 || critiques.length > 0) && <section className="mb-4"><h3 className="font-semibold text-sm mb-1.5">What to fix</h3>
         <ul className="space-y-1.5 text-[13px]" style={{ color: "var(--text2)" }}>
           {fixes.map(([m, d]) => <li key={m}><span style={{ color: "#FB923C" }}>●</span> {d} <span style={{ color: "var(--muted)" }}>→ {m}</span></li>)}
-          {critiques.slice(0, 6).map((c, i) => <li key={i}><span style={{ color: "#22D3EE" }}>●</span> <b style={{ color: "var(--text)" }}>{c.criterion ?? "Reppo"}</b>{c.score != null ? ` · ${c.score}` : ""} - {c.critique ?? JSON.stringify(c).slice(0, 200)}</li>)}
+          {critiques.slice(0, 6).map((c, i) => <li key={i}><span style={{ color: "#22D3EE" }}>●</span> <b style={{ color: "var(--text)" }}>{c.criterion ?? "Reppo"}</b>{c.score != null ? ` · ${c.score}` : ""}{c.critique === "" ? "" : ` - ${c.critique ?? JSON.stringify(c).slice(0, 200)}`}</li>)}
         </ul></section>}
       <label className="text-xs font-semibold block mb-1.5" style={{ color: "var(--text2)" }}>Payload (JSON)</label>
       <textarea className="input mono text-xs" style={{ minHeight: 150, height: "auto" }} value={payload} onChange={(e) => setPayload(e.target.value)} spellCheck={false} />
